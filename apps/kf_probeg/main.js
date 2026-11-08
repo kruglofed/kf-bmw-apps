@@ -8,6 +8,9 @@
  *             топливо и запас хода, эта поездка (путь, время в движении, средняя скорость).
  *   Пробег    реальный пробег за сегодня, вчера, неделю, месяц, средний за день, столбцы за 14 дней.
  *   Заправки  расход по уровню бака на реальные км: текущий бак, последние заправки и средний.
+ *   ТО        масло, фильтры, жидкости по реальному пробегу и времени (service.js): что когда сделано,
+ *             сколько осталось. Пункт выбирается кнопкой "Следующий пункт" или касанием, отмечается
+ *             кнопкой "Отметить: сделано" (второе нажатие подтверждает, ещё одно в течение 2 мин - отмена).
  *
  * Реальный путь (realdist.js) - сумма скорость x время по скорости центра масс машины
  * (Vehicle2.statusCarSpeed2), которую машина считает по колёсам. Одометр машины только показывается
@@ -25,10 +28,12 @@ const G = require('./kit/gauges');
 const { withAlpha } = require('./kit/canvas');
 const { Logbook, per100 } = require('./logbook');
 const { RealDistance } = require('./realdist');
+const { Service } = require('./service');
 
 const W = 1600, H = 520;
 const KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
-const PAGES = ['Сейчас', 'Пробег', 'Заправки'];
+const PAGES = ['Сейчас', 'Пробег', 'Заправки', 'ТО'];
+const SVC_PAGE = 3;
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const CONS = { VERBRAUCH_IN_L_S_100KM: 'л/100 км', VERBRAUCH_IN_MPG_UK: 'mpg', VERBRAUCH_IN_MPG_US: 'mpg US', VERBRAUCH_IN_KM_S_L: 'км/л', 1: 'л/100 км', 2: 'mpg', 3: 'mpg US', 4: 'км/л' };
@@ -96,11 +101,12 @@ mgu.run({
         const offset = () => (Number(settings.get('realBase')) || 0) * 1000;
         const rd = new RealDistance(saved.real, calib());
         const lb = new Logbook(saved.log);
-        const verOf = () => lb.ver + ':' + rd.ver;
+        const sv = new Service(saved.service);
+        const verOf = () => lb.ver + ':' + rd.ver + ':' + sv.ver;
         let savedVer = verOf(), savedAt = Date.now();
         function save() {
             try {
-                fs.writeFileSync(FILE + '.tmp', JSON.stringify({ v: 2, real: rd, log: lb }));
+                fs.writeFileSync(FILE + '.tmp', JSON.stringify({ v: 2, real: rd, log: lb, service: sv }));
                 fs.renameSync(FILE + '.tmp', FILE);
                 savedVer = verOf(); savedAt = Date.now();
             } catch (e) { log.warn('save: ' + e); }
@@ -114,6 +120,7 @@ mgu.run({
                 const now = Date.now();
                 rd.calib = calib();
                 rd.tick(now);
+                sv.settle(now);
                 const carOdo = car.odo !== null ? car.odo : car.odoAlt;
                 if (carOdo !== null) rd.car(carOdo);
                 // в учёт дней и заправок идёт реальный пробег без поправки: поправка лишь сдвигает показ
@@ -257,21 +264,94 @@ mgu.run({
             { rowH, size: 24, empty: 'Заправки появятся здесь: приложение замечает, когда уровень в баке вырос на 5 л и больше' });
         }
 
+        /* ---------- ТО ---------- */
+        let sel = 0, note = null;              // выбранный пункт; подсказка после нажатия { text, until }
+        const svcItems = () => sv.items({ engine: settings.get('engine') || 'petrol', oilKm: Number(settings.get('oilKm')) || 10000 });
+        const SV_TOP = 100, SV_ROW = 38;
+        let svRowH = SV_ROW;               // высота строки на последнем кадре - для касаний
+        function when(days) {
+            if (days === null) return '';
+            const a = Math.abs(days), m = Math.round(a / 30.44);
+            const txt = a < 45 ? a + ' дн' : m < 24 ? m + ' мес' : Math.round(a / 365) + ' г';
+            return days <= 0 ? 'срок прошёл ' + txt + ' назад' : 'через ' + txt;
+        }
+        function drawService(cv, t, d, L, now, demo) {
+            const items = svcItems(), odo = demo ? demoLb.odo : rd.odo(0), off = demo ? 0 : offset();
+            if (sel >= items.length) sel = 0;
+            const p = G.panel(cv, t, 24, 44, 1552, 468, 'Техобслуживание по реальному пробегу'), ey = p.y + p.h - G.BOTTOM;
+            const cols = [{ label: 'Пункт', w: 470 }, { label: 'Интервал', w: 250 }, { label: 'Последний раз', w: 330 }, { label: 'Осталось', w: 220, align: 'right' }, { label: 'Срок', w: 234, align: 'right' }];
+            const rows = items.map((it, i) => {
+                const st = demo ? demoSvc(it, odo, now) : sv.status(it, odo, now);
+                const color = st.state === 'due' ? 'crit' : st.state === 'soon' ? 'warn' : null;
+                const iv = [isNum(it.km) ? group(it.km) + ' км' : null, isNum(it.months) ? (it.months % 12 ? it.months + ' мес' : it.months / 12 + (it.months === 12 ? ' год' : ' г')) : null].filter(Boolean).join(' / ');
+                const conf = !demo && sv.confirming(it.id, now);
+                return [{ text: it.name, color: i === sel ? 'accent' : null, font: i === sel ? 'bold' : null },
+                    { text: iv, color: 'dim' },
+                    st.last ? km(st.last.km + off) + ' км, ' + dateOf(st.last.t) : { text: conf ? 'нажмите ещё раз' : 'не отмечено', color: conf ? 'warn' : 'dim' },
+                    st.kmLeft === null ? '' : { text: (st.kmLeft < 0 ? '−' : '') + km(Math.abs(st.kmLeft)) + ' км', color },
+                    { text: when(st.daysLeft), color: st.daysLeft !== null && st.daysLeft <= 30 ? color || 'warn' : 'dim' }];
+            });
+            const rowH = svRowH = SV_ROW + Math.max(0, Math.floor(ey / items.length));
+            cv.roundRect(36, SV_TOP + 30 + sel * rowH, 1528, rowH, 6, withAlpha(t.accent, 0.12));
+            cv.fillRect(36, SV_TOP + 30 + sel * rowH + 6, 4, rowH - 12, t.accent);
+            G.table(cv, t, 48, SV_TOP, 1504, cols, rows, { rowH, size: 24, stripe: false });
+            const msg = note && now < note.until ? note.text
+                : 'Выберите пункт кнопкой «Следующий пункт» или касанием и нажмите «Отметить: сделано», когда работа сделана';
+            cv.text(msg, 48, 492 + ey, 22, note && now < note.until ? t.text : t.dim);
+        }
+        // цифры для демо: часть пунктов сделана, одно просрочено
+        function demoSvc(it, odo, now) {
+            const ago = { oil: [10300, 300], air: [12000, 300], cabin: [8600, 200], brake: [0, 690], pads: [8600, 200], atf: [null, 0] }[it.id];
+            if (!ago || ago[0] === null) return { last: null, kmLeft: null, daysLeft: null, state: 'none' };
+            const fake = new Service({ log: { [it.id]: [{ t: now - ago[1] * DAY, km: odo - ago[0] }] } });
+            return fake.status(it, odo, now);
+        }
+        const overdue = () => {
+            const odo = rd.odo(0);
+            return svcItems().filter((it) => { const st = sv.status(it, odo, Date.now()); return st.state === 'due'; }).length;
+        };
+        function pressDone() {
+            if (page !== SVC_PAGE) return go(SVC_PAGE);
+            const it = svcItems()[sel], now = Date.now();
+            if (demoOn()) { note = { until: now + 6000, text: 'Демо-режим: отметки не сохраняются' }; return render(); }
+            const r = sv.press(it.id, rd.odo(0), now);
+            const at = rd.odo(offset());
+            note = { until: now + 6000, text: r.kind === 'confirm' ? 'Отметить «' + it.name + '» сделанным на ' + km(at) + ' км? Нажмите «Отметить» ещё раз'
+                : r.kind === 'done' ? '«' + it.name + '» отмечено на ' + km(at) + ' км. Ошиблись - нажмите «Отметить» в течение 2 минут'
+                    : r.kind === 'undone' ? 'Отметка «' + it.name + '» отменена'
+                        : 'Реальный пробег ещё не известен: нужен одометр от машины' };
+            if (r.kind === 'done' || r.kind === 'undone') save();
+            return render();
+        }
+        function nextItem() {
+            if (page !== SVC_PAGE) return go(SVC_PAGE);
+            sel = (sel + 1) % svcItems().length; note = null; sv.pending = null;
+            return render();
+        }
+
         async function render() {
             const t = ctx.theme(), cv = ctx.canvas(W, H).clear(t.bg), now = Date.now();
             const demo = demoOn();
             const d = demo ? demoCar() : { real: rd.odo(offset()), carOdo: car.odo !== null ? car.odo : car.odoAlt, carOdo0: rd.carOdo0, since: rd.start,
                 ratio: rd.ratio(), tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
             const L = demo ? demoLb : lb;
-            [drawNow, drawDays, drawFuel][page](cv, t, d, L, now);
-            G.frame(cv, t, PAGES, page, [demo && { text: 'DEMO' }]);
+            [drawNow, drawDays, drawFuel, drawService][page](cv, t, d, L, now, demo);
+            const late = demo ? 0 : overdue();
+            G.frame(cv, t, PAGES, page, [demo && { text: 'DEMO' }, late && { text: 'ТО: ' + late, color: 'crit' }]);
             await ui.image('MAIN_GFX', cv);
         }
 
         const go = (i) => { page = (i + PAGES.length) % PAGES.length; return render(); };
         ui.onClick('BTN_PAGE', () => go(page + 1));
-        ui.onClick('BTN_PREV', () => go(page - 1));
+        ui.onClick('BTN_ITEM', nextItem);
+        ui.onClick('BTN_DONE', pressDone);
         ctx.onTab((i) => go(i));
+        // касание строки на странице ТО выбирает пункт
+        ctx.onTap((x, y) => {
+            if (page !== SVC_PAGE) return;
+            const n = svcItems().length, i = Math.floor((y - SV_TOP - 30) / svRowH);
+            if (i >= 0 && i < n && i !== sel) { sel = i; note = null; sv.pending = null; render(); }
+        });
         // значения меняются не чаще раза в секунду: 2 кадра в секунду хватает и без GPU
         ctx.loop('MAIN', 2, render);
         render().then(() => log.info('first frame done')).catch((e) => log.warn('first render: ' + e));
