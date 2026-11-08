@@ -6,6 +6,10 @@
  * Страницы (вкладки сверху):
  *   Сейчас    реальный пробег и одометр машины рядом, сколько из реального пути насчитал одометр,
  *             топливо и запас хода, эта поездка (путь, время в движении, средняя скорость).
+ *   Неделя    по дням за 7 дней: км, время в движении, средняя и максимальная скорость, топливо (л и руб),
+ *             расход и рейтинг стиля; итог за неделю.
+ *   Стиль     рейтинг экономичности 0-100 за сегодня и за неделю (drive.js): резкие разгоны, торможения,
+ *             повороты на 100 км и средний разгон, совет, что больше всего снижает рейтинг.
  *   Пробег    реальный пробег за сегодня, вчера, неделю, месяц, средний за день, столбцы за 14 дней.
  *   Заправки  расход по уровню бака на реальные км: текущий бак, последние заправки и средний.
  *   ТО        масло, фильтры, жидкости по реальному пробегу и времени (service.js): что когда сделано,
@@ -29,11 +33,13 @@ const { withAlpha } = require('./kit/canvas');
 const { Logbook, per100 } = require('./logbook');
 const { RealDistance } = require('./realdist');
 const { Service } = require('./service');
+const { Drive, rate, sum, dayKey } = require('./drive');
 
 const W = 1600, H = 520;
 const KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
-const PAGES = ['Сейчас', 'Пробег', 'Заправки', 'ТО'];
-const SVC_PAGE = 3;
+const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'ТО'];
+const SVC_PAGE = 5;
+const CDS2 = 'de.bmw.infotainment.vehicle.CDS2';
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const CONS = { VERBRAUCH_IN_L_S_100KM: 'л/100 км', VERBRAUCH_IN_MPG_UK: 'mpg', VERBRAUCH_IN_MPG_US: 'mpg US', VERBRAUCH_IN_KM_S_L: 'км/л', 1: 'л/100 км', 2: 'mpg', 3: 'mpg US', 4: 'км/л' };
@@ -88,9 +94,16 @@ mgu.run({
         watch(V2, { statusCarSpeed2: (v) => {
             const s = raw(v, 'speedVehicleCentreOfGravity', 65535);
             car.speed = s === null ? null : s * 0.015625;
-            rd.speed(Date.now(), car.speed);
+            const now = Date.now(), k0 = rd.counted, m0 = rd.trip.moveMs;
+            rd.speed(now, car.speed);
+            dv.speed(now, car.speed, rd.counted - k0, rd.trip.moveMs - m0);
             got();
         } }, 2000);
+        // боковое ускорение - для резких поворотов (шкала как в G-Force: x 0,002 - 65 м/с^2)
+        watch(CDS2, { statusLateralAccelerationMassCenter: (v) => {
+            const a = raw(v, 'lateralAccelerationCentreOfGravity', 65535);
+            if (a !== null) dv.lat(Date.now(), a * 0.002 - 65);
+        } });
 
         /* ---------- учёт ---------- */
         const FILE = path.join(ctx.dataDir, 'probeg.json');
@@ -102,11 +115,12 @@ mgu.run({
         const rd = new RealDistance(saved.real, calib());
         const lb = new Logbook(saved.log);
         const sv = new Service(saved.service);
-        const verOf = () => lb.ver + ':' + rd.ver + ':' + sv.ver;
+        const dv = new Drive(saved.drive);
+        const verOf = () => lb.ver + ':' + rd.ver + ':' + sv.ver + ':' + dv.ver;
         let savedVer = verOf(), savedAt = Date.now();
         function save() {
             try {
-                fs.writeFileSync(FILE + '.tmp', JSON.stringify({ v: 2, real: rd, log: lb, service: sv }));
+                fs.writeFileSync(FILE + '.tmp', JSON.stringify({ v: 2, real: rd, log: lb, service: sv, drive: dv }));
                 fs.renameSync(FILE + '.tmp', FILE);
                 savedVer = verOf(); savedAt = Date.now();
             } catch (e) { log.warn('save: ' + e); }
@@ -119,7 +133,9 @@ mgu.run({
             try {
                 const now = Date.now();
                 rd.calib = calib();
+                const k0 = rd.counted, m0 = rd.trip.moveMs;
                 rd.tick(now);
+                dv.move(now, rd.counted - k0, rd.trip.moveMs - m0);
                 sv.settle(now);
                 const carOdo = car.odo !== null ? car.odo : car.odoAlt;
                 if (carOdo !== null) rd.car(carOdo);
@@ -148,6 +164,15 @@ mgu.run({
                 }
                 odo += run; tank -= run * (0.108 + 0.02 * ((i * 7) % 5) / 4);
                 for (let k = 0; k < 4; k++) d.feed(t.getTime() + 3600000 + k * 1000, { odo, tank, speed: 0 });
+            }
+            return d;
+        })();
+        const demoDv = (() => {
+            const d = new Drive(null), now = Date.now();
+            const runs = [[38, 41, 112, 2, 3, 1], [42, 37, 96, 1, 1, 0], [65, 52, 131, 4, 2, 1], [18, 28, 74, 2, 3, 0], [120, 78, 148, 3, 2, 1], [55, 44, 104, 6, 7, 3], [0], [73, 61, 127, 1, 1, 0]];
+            for (let i = 0; i < 8; i++) {
+                const r = runs[i]; if (!r[0]) continue;
+                d.days[dayKey(now - i * DAY)] = { km: r[0], moveMs: r[0] / r[1] * 3600000, vmax: r[2], acc: r[3], brk: r[4], turn: r[5], posA: 0.62 * r[0] * 9, posT: r[0] * 9 };
             }
             return d;
         })();
@@ -214,6 +239,92 @@ mgu.run({
             cv.text('БК машины: ' + (isNum(bc.cons) ? f1(bc.cons) + ' ' + (bc.cu || 'л/100 км') : '--') + ', считает по одометру', 832, 486 + G.toMargin(by, 26), 22, t.dim);
         }
 
+        const price = () => Number(settings.get('fuelPrice')) || 81;
+        const rub = (x) => (isNum(x) ? group(x) + ' руб' : '--');
+        const scoreColor = (t, sc) => (sc === null ? t.dim : sc >= 85 ? t.accent : sc >= 70 ? t.text : sc >= 50 ? t.warn : t.crit);
+        /** день: { km, moveMs, vmax, avg, fuel, cost, cons, rate } */
+        function dayInfo(dd, fuel) {
+            const k = dd ? dd.km : 0, l = isNum(fuel) ? fuel : null;
+            return {
+                km: dd ? k : null, moveMs: dd ? dd.moveMs : null, vmax: dd && dd.vmax > 0 ? dd.vmax : null,
+                avg: dd && dd.moveMs > 60000 ? k / (dd.moveMs / 3600000) : null,
+                fuel: l, cost: l === null ? null : l * price(), cons: l !== null && k >= 20 ? l / k * 100 : null, rate: rate(dd),
+            };
+        }
+        const hm = (ms) => { if (!isNum(ms)) return '--'; const m = Math.round(ms / 60000); return Math.floor(m / 60) + ':' + pad2(m % 60); };
+
+        function drawWeek(cv, t, d, L, now, demo) {
+            const D = demo ? demoDv : dv;
+            const p = G.panel(cv, t, 24, 44, 1552, 468, 'Последние 7 дней'), ey = p.y + p.h - G.BOTTOM;
+            const list = D.list(now, 7);
+            const cols = [{ label: 'День', w: 170 }, { label: 'Км', w: 140, align: 'right' }, { label: 'В движении', w: 170, align: 'right' },
+                { label: 'Ср. скорость', w: 180, align: 'right' }, { label: 'Макс.', w: 150, align: 'right' }, { label: 'Топливо', w: 150, align: 'right' },
+                { label: 'Стоимость', w: 170, align: 'right' }, { label: 'Расход', w: 190, align: 'right' }, { label: 'Стиль', w: 184, align: 'right' }];
+            const row = (name, x, bold) => [{ text: name, font: bold ? 'bold' : null }, isNum(x.km) ? km(x.km) : '--', hm(x.moveMs),
+                isNum(x.avg) ? Math.round(x.avg) + ' км/ч' : '--', isNum(x.vmax) ? Math.round(x.vmax) + ' км/ч' : '--',
+                isNum(x.fuel) ? f1(x.fuel) + ' л' : '--', rub(x.cost), isNum(x.cons) ? f1(x.cons) + ' л/100' : '--',
+                x.rate ? { text: String(x.rate.score), font: 'bold', color: x.rate.score >= 85 ? 'accent' : x.rate.score >= 70 ? null : x.rate.score >= 50 ? 'warn' : 'crit' } : '--'];
+            const rows = list.map((e) => row(dayLabel(e[0]), e[1] ? dayInfo(e[1], L.fuel[e[0]]) : { km: null }));
+            const all = sum(list.map((e) => e[1])), fuelAll = list.reduce((a, e) => a + (L.fuel[e[0]] || 0), 0);
+            rows.push(row('За неделю', dayInfo(all.km > 0 ? all : null, fuelAll || null), true));
+            const rowH = 38 + Math.max(0, Math.floor(ey / 8));
+            G.table(cv, t, 48, 100, 1504, cols, rows, { rowH, size: 23 });
+            cv.fillRect(40, 130 + 7 * rowH, 1520, 1, withAlpha(t.tick, 0.5));
+            cv.text('Топливо - по уровню в баке (точность около 1 л за день), цена ' + group(price()) + ' руб/л - в настройках. Расход - для дней от 20 км',
+                48, 492 + ey, 20, t.dim);
+        }
+
+        const TIPS = {
+            acc: 'Больше всего баллов снимают резкие разгоны: нажимайте газ плавнее, разгон съедает больше всего топлива',
+            brk: 'Больше всего баллов снимают резкие торможения: держите дистанцию и отпускайте газ заранее',
+            turn: 'Больше всего баллов снимают резкие повороты: сбавляйте скорость до поворота',
+            smooth: 'Средний разгон высокий: педаль газа можно нажимать мягче',
+        };
+        function drawStyle(cv, t, d, L, now, demo) {
+            const D = demo ? demoDv : dv;
+            const today = D.day(dayKey(now)), r = rate(today);
+            const p = G.panel(cv, t, 24, 44, 760, 468, 'Стиль сегодня'), ey = p.y + p.h - G.BOTTOM;
+            big(cv, t, 48, 200, r ? String(r.score) : '--', 'из 100', 120, scoreColor(t, r ? r.score : null));
+            cv.text(r ? r.label : 'после 5 км за день', 760, 200, 34, r ? scoreColor(t, r.score) : t.dim, { align: 'right', font: 'bold' });
+            cv.fillRect(48, 236, 712, 1, withAlpha(t.tick, 0.4));
+            const per = (n, x) => (r ? n + ' (' + f1(x) + ' на 100 км)' : '--');
+            const rows = [['Резкие разгоны', today ? per(today.acc, r && r.parts.perAcc) : '--'], ['Резкие торможения', today ? per(today.brk, r && r.parts.perBrk) : '--'],
+                ['Резкие повороты', today ? per(today.turn, r && r.parts.perTurn) : '--'], ['Средний разгон', r ? f1(r.parts.avgAcc) + ' м/с²' : '--']];
+            const gap = 52 + Math.round(ey / 4);
+            rows.forEach((x, i) => line(cv, t, 48, 286 + i * gap, 712, x[0], x[1]));
+            cv.text('резкие: разгон от 2,5 м/с², торможение от 3 м/с², поворот от 4 м/с²', 48, 286 + 4 * gap - 18, 20, t.dim);
+
+            // неделя: рейтинг по дням
+            const list = D.list(now, 7).reverse(), wr = rate(sum(list.map((e) => e[1])));
+            const wp = G.panel(cv, t, 808, 44, 768, 468, 'За 7 дней'), wy = wp.y + wp.h - G.BOTTOM;
+            big(cv, t, 832, 170, wr ? String(wr.score) : '--', wr ? wr.label.toLowerCase() : 'из 100', 84, scoreColor(t, wr ? wr.score : null));
+            const x0 = 836, bw = 80, step = 100, base = 380 + Math.round(wy / 2), top = 210;
+            list.forEach((e, i) => {
+                const dr = rate(e[1]), bx = x0 + i * step, h = dr ? Math.round((base - top) * dr.score / 100) : 0;
+                cv.roundRect(bx, top, bw, base - top, 6, withAlpha(t.track, 0.5));
+                if (h > 0) cv.roundRect(bx, base - h, bw, h, 6, withAlpha(scoreColor(t, dr.score), i === list.length - 1 ? 1 : 0.7));
+                cv.text(dr ? String(dr.score) : '', bx + bw / 2, base - h - 10, 20, t.text, { align: 'center', font: 'bold' });
+                cv.text(dayLabel(e[0]), bx + bw / 2, base + 28, 18, i === list.length - 1 ? t.text : t.dim, { align: 'center' });
+            });
+            // совет: что больше всего снижает рейтинг за неделю
+            let tip = wr ? 'Отличная плавная езда - так и дальше' : 'Рейтинг появится после первых 5 км';
+            if (wr && wr.score < 85) {
+                const worst = ['acc', 'brk', 'turn', 'smooth'].sort((a, b) => wr.parts[b] - wr.parts[a])[0];
+                tip = TIPS[worst];
+            }
+            const lines = cv.textWidth(tip, 20) > 712 ? wrap(cv, tip, 20, 712) : [tip];
+            lines.slice(0, 2).forEach((s, i) => cv.text(s, 832, 462 + wy + i * 26 - (lines.length > 1 ? 26 : 0), 20, t.dim));
+        }
+        function wrap(cv, text, size, w) {
+            const out = []; let cur = '';
+            text.split(' ').forEach((word) => {
+                const next = cur ? cur + ' ' + word : word;
+                if (cv.textWidth(next, size) > w && cur) { out.push(cur); cur = word; } else cur = next;
+            });
+            if (cur) out.push(cur);
+            return out;
+        }
+
         function drawDays(cv, t, d, L, now) {
             const st = L.stats(now);
             const p = G.panel(cv, t, 24, 44, 600, 468, 'Пробег'), ex = p.y + p.h - G.BOTTOM;
@@ -251,6 +362,7 @@ mgu.run({
             }
             G.panel(cv, t, 808, 44, 768, 200, 'Средний по заправкам');
             big(cv, t, 832, 196, isNum(a.avg) ? f1(a.avg) : '--', 'л/100 км', 68);
+            if (isNum(a.avg)) cv.text('~' + group(a.avg * price()) + ' руб на 100 км', 1552, 198, 24, t.dim, { align: 'right' });
             cv.text(a.n ? a.n + ' ' + (a.n === 1 ? 'бак' : a.n < 5 ? 'бака' : 'баков') + ', ' + km(a.km) + ' км' : 'появится после первой заправки', 1552, 164, 24, t.dim, { align: 'right' });
 
             const tp = G.panel(cv, t, 24, 260, 1552, 252, 'Последние заправки'), ty = tp.y + tp.h - G.BOTTOM;
@@ -266,7 +378,7 @@ mgu.run({
 
         /* ---------- ТО ---------- */
         let sel = 0, note = null;              // выбранный пункт; подсказка после нажатия { text, until }
-        const svcItems = () => sv.items({ engine: settings.get('engine') || 'petrol', oilKm: Number(settings.get('oilKm')) || 10000 });
+        const svcItems = () => sv.items({ engine: settings.get('engine') || 'diesel', oilKm: Number(settings.get('oilKm')) || 10000 });
         const SV_TOP = 100, SV_ROW = 38;
         let svRowH = SV_ROW;               // высота строки на последнем кадре - для касаний
         function when(days) {
@@ -335,7 +447,7 @@ mgu.run({
             const d = demo ? demoCar() : { real: rd.odo(offset()), carOdo: car.odo !== null ? car.odo : car.odoAlt, carOdo0: rd.carOdo0, since: rd.start,
                 ratio: rd.ratio(), tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
             const L = demo ? demoLb : lb;
-            [drawNow, drawDays, drawFuel, drawService][page](cv, t, d, L, now, demo);
+            [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawService][page](cv, t, d, L, now, demo);
             const late = demo ? 0 : overdue();
             G.frame(cv, t, PAGES, page, [demo && { text: 'DEMO' }, late && { text: 'ТО: ' + late, color: 'crit' }]);
             await ui.image('MAIN_GFX', cv);

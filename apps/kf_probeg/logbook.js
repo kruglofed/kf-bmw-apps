@@ -19,6 +19,7 @@
  *   lb.feed(now, { odo, tank, speed })   // примерно раз в секунду; null = сейчас не известно
  *       -> { refuel: {...} | null }      // замеченная заправка
  *   lb.kmSince(dayKey), lb.stats(now), lb.daily(now, n), lb.current(), lb.periods, lb.average()
+ *   lb.fuel[dayKey]                      литров ушло из бака за день (по уровню, без заправок)
  *   lb.toJSON()
  */
 const REFUEL_L = 5;          // рост уровня на столько литров и больше - заправка
@@ -50,6 +51,8 @@ class Logbook {
         this.low = isNum(s.low) ? s.low : null;                     // самый низкий уровень бака с последней заправки
         this.tank = isNum(s.tank) ? s.tank : null;                  // последний сглаженный уровень
         this.periods = Array.isArray(s.periods) ? s.periods.filter((p) => p && isNum(p.km) && isNum(p.l)).slice(-KEEP_PERIODS) : [];
+        this.fuel = {};                                             // день -> литров ушло из бака
+        if (s.fuel && typeof s.fuel === 'object') Object.keys(s.fuel).forEach((k) => { if (isNum(s.fuel[k])) this.fuel[k] = s.fuel[k]; });
         this.win = [];                                              // [t, литры] - не сохраняется
         this.ver = 0;
     }
@@ -95,7 +98,16 @@ class Logbook {
             this.low = lv; this.ver++;
             return null;
         }
-        if (this.low === null || lv < this.low) { this.low = lv; this.ver++; return null; }
+        if (this.low === null || lv < this.low) {
+            if (this.low !== null) {
+                // расход за день: насколько опустился самый низкий уровень с заправки
+                const k = dayKey(now);
+                this.fuel[k] = round((this.fuel[k] || 0) + this.low - lv, 2);
+                const keys = Object.keys(this.fuel).sort();
+                while (keys.length > KEEP_DAYS) delete this.fuel[keys.shift()];
+            }
+            this.low = lv; this.ver++; return null;
+        }
         const standing = speed === null || speed < 3;
         if (standing && lv - this.low >= REFUEL_L && odo !== null) {
             const f = this.fill, km = odo - f.odo, l = round(f.tank - this.low, 1);
@@ -171,7 +183,7 @@ class Logbook {
     }
 
     toJSON() {
-        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days };
+        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel };
     }
 }
 
