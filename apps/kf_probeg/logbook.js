@@ -3,6 +3,9 @@
  * logbook.js - пробег по дням и реальный расход по заправкам, только из того, что машина сама шлёт
  * головному устройству: одометр (km) и топливо в баке (л) от комбинации приборов.
  *
+ * Одометр здесь - любой счётчик км, который только растёт: приложение передаёт реальный пробег,
+ * посчитанный по скорости (realdist.js), а не одометр машины.
+ *
  * Пробег. Для каждого дня хранятся первое и последнее показание одометра. Пробег за период = последнее
  * показание сейчас минус последнее показание до начала периода; дни, когда приложение не работало,
  * попадают в период того показания, которое пришло после них, поэтому километры не теряются.
@@ -53,7 +56,7 @@ class Logbook {
 
     feed(now, x) {
         let refuel = null;
-        const odo = isNum(x.odo) && x.odo > 0 ? Math.round(x.odo) : null;
+        const odo = isNum(x.odo) && x.odo > 0 ? Math.round(x.odo * 100) / 100 : null;
         if (odo !== null) this.feedOdo(now, odo);
         if (isNum(x.tank) && x.tank >= 0 && x.tank < 200) refuel = this.feedTank(now, x.tank, isNum(x.speed) ? x.speed : null);
         return { refuel };
@@ -168,7 +171,7 @@ class Logbook {
     }
 
     toJSON() {
-        return { v: 1, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days };
+        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days };
     }
 }
 
