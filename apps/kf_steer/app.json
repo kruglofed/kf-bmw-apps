@@ -1,0 +1,45 @@
+{
+  "id": "kf_steer",
+  "title": "Рулёжка",
+  "description": "Угол руля, рыскание и ускорения живьём, вид машины сверху, и поиск сигнала задней оси в каталоге головного устройства",
+  "version": "1.0.0",
+  "vendor": "custom",
+  "loggingId": "OAKR",
+  "signals": {
+    "de.bmw.chassis.SteeringAngle": {
+      "ActualSteeringAngleDriver": "s",
+      "actualSteeringAngleDriverNoCRC": "s"
+    },
+    "de.bmw.infotainment.vehicle.CDS2": {
+      "statusYawVelocityVehicle": "rs",
+      "statusLateralAccelerationMassCenter": "rs",
+      "statusLongitudinalAccelerationMassCenter": "rs"
+    },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "Рулёжка",
+      "buttons": [
+        ["BTN_PAGE", "Next page"],
+        ["BTN_PREV", "Previous page"],
+        ["BTN_SETTINGS", "Settings"]
+      ]
+    }
+  ],
+  "settings": [
+    {"key": "steerRatio", "label": "Передаточное число руля", "type": "number", "default": 15, "steps": [10, 11, 12, 13, 14, 15, 16, 17, 18, 20]},
+    {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
+     "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
+    {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",
+     "options": [["full", "Full screen"], ["standard", "Standard"]]},
+    {"key": "renderer", "label": "Renderer", "type": "choice", "default": "auto",
+     "options": [["auto", "GPU 60 fps (default)"], ["software", "Software"]]},
+    {"key": "demo", "label": "Demo data", "type": "choice", "default": "auto",
+     "options": [["auto", "Auto"], ["on", "Always"], ["off", "Never"]]}
+  ]
+}
