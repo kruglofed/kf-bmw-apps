@@ -20,6 +20,8 @@
  *       -> { refuel: {...} | null }      // замеченная заправка
  *   lb.kmSince(dayKey), lb.stats(now), lb.daily(now, n), lb.current(), lb.periods, lb.average()
  *   lb.fuel[dayKey]                      литров ушло из бака за день (по уровню, без заправок)
+ *   lb.fuelCost(dayKey, priceAt)         стоимость этих литров: каждый литр - по цене бака, из которого он
+ *                                        ушёл (priceAt(время заправки) из prices.js)
  *   lb.toJSON()
  */
 const REFUEL_L = 5;          // рост уровня на столько литров и больше - заправка
@@ -53,6 +55,8 @@ class Logbook {
         this.periods = Array.isArray(s.periods) ? s.periods.filter((p) => p && isNum(p.km) && isNum(p.l)).slice(-KEEP_PERIODS) : [];
         this.fuel = {};                                             // день -> литров ушло из бака
         if (s.fuel && typeof s.fuel === 'object') Object.keys(s.fuel).forEach((k) => { if (isNum(s.fuel[k])) this.fuel[k] = s.fuel[k]; });
+        this.fuelBy = {};                                           // день -> { время заправки бака: литров }
+        if (s.fuelBy && typeof s.fuelBy === 'object') Object.keys(s.fuelBy).forEach((k) => { if (s.fuelBy[k] && typeof s.fuelBy[k] === 'object') this.fuelBy[k] = s.fuelBy[k]; });
         this.win = [];                                              // [t, литры] - не сохраняется
         this.ver = 0;
     }
@@ -103,8 +107,10 @@ class Logbook {
                 // расход за день: насколько опустился самый низкий уровень с заправки
                 const k = dayKey(now);
                 this.fuel[k] = round((this.fuel[k] || 0) + this.low - lv, 2);
+                const by = this.fuelBy[k] || (this.fuelBy[k] = {}), ft = String(this.fill.t);
+                by[ft] = round((by[ft] || 0) + this.low - lv, 2);
                 const keys = Object.keys(this.fuel).sort();
-                while (keys.length > KEEP_DAYS) delete this.fuel[keys.shift()];
+                while (keys.length > KEEP_DAYS) { const old = keys.shift(); delete this.fuel[old]; delete this.fuelBy[old]; }
             }
             this.low = lv; this.ver++; return null;
         }
@@ -167,6 +173,13 @@ class Logbook {
         return out;
     }
 
+    /** стоимость топлива за день; null - не известно */
+    fuelCost(key, priceAt) {
+        const by = this.fuelBy[key];
+        if (!by) return isNum(this.fuel[key]) ? this.fuel[key] * priceAt(Date.now()) : null;
+        return Object.keys(by).reduce((a, ft) => a + by[ft] * priceAt(Number(ft)), 0);
+    }
+
     /** текущий бак: { km, l, avg, since, partial } или null */
     current() {
         const f = this.fill;
@@ -183,7 +196,7 @@ class Logbook {
     }
 
     toJSON() {
-        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel };
+        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel, fuelBy: this.fuelBy };
     }
 }
 
