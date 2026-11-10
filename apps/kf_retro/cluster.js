@@ -11,8 +11,8 @@
  *   фон     одна картинка на панель (back), уходит один раз при смене панели;
  *   стрелки каждая - маленькая картинка, которую поворачивает сам блок приборов: шлём только
  *           угол (`rotate`) 25 раз в секунду; тень - такой же слой, сдвинутый вниз-вправо;
- *   живое   одометр, лампы, цифры, лента «Москвича» - прозрачный слой поверх стрелок,
- *           перерисовывается 6 раз в секунду, уходят только изменившиеся квадраты.
+ *   живое   одометр, лампы, цифры, лента «Москвича» - прозрачные куски 240x231 поверх стрелок
+ *           (только там, где что-то есть), 6 раз в секунду, уходят только изменившиеся квадраты.
  * Экран 1600x520 центрального дисплея ложится на приборы крупно: масштаб 1,33, пустые края по бокам обрезаны.
  *
  *   const out = new ClusterOut(log);
@@ -30,6 +30,7 @@ const CLIENT = process.env.KF_CLUSTER_CLIENT || '/var/opt/cluster-render/current
 // растягивается на всю ширину 1920 (масштаб 1,33, без искажений); по высоте 693 из 720, поля сверху и
 // снизу по ~13 px
 const TW = 1920, TH = 720, CROPX = 80, S = TW / (1600 - 2 * CROPX), CW = TW, CH = Math.round(520 * S), OY = Math.floor((TH - CH) / 2);
+const TW_T = 240, TH_T = 231;          // куски живого слоя
 const OYB = TH - OY - CH, BIGW = Math.round(1600 * S), SKIP = Math.round(CROPX * S);
 /** кадр 1600x520 в масштабе S (BIGW x CH) -> обрезанный по бокам CW x CH */
 function crop(src, dst) {
@@ -42,15 +43,18 @@ const buf = (u8) => Buffer.from(u8.buffer, u8.byteOffset, u8.length);
 
 /** картинка одной стрелки, острием вверх; ось в (pw, ph) пикселях картинки */
 function needleImage(o, shadow) {
+    // стрелка лёжа, острием вправо: длина картинки до 1920 px (стоя упёрлась бы в предел 720 по высоте);
+    // слой поворачивается на угол - 90. Без растягивания: блок тянет слой по осям экрана, и
+    // растянутая наклонная стрелка показывала бы другой угол
     const pad = 4 + (o.glow ? 4 : 0);
-    const lw = Math.max(o.w || 8, (o.tip || 2) + 2) + pad * 2, lh = o.len + (o.tail || 0) + pad * 2;
+    const lh = Math.max(o.w || 8, (o.tip || 2) + 2) + pad * 2, lw = o.len + (o.tail || 0) + pad * 2;
     const c = new ScaledCanvas(lw, lh, S);
     c.clear([0, 0, 0, 0]);
-    const cx = lw / 2, cy = pad + o.len;
+    const cx = pad + (o.tail || 0), cy = lh / 2;
     const saved = D.capture.list;
     D.capture.list = null;
     const st = shadow ? Object.assign({}, o, { color: [0, 0, 0, 110], glow: null, tipColor: null, stripe: false, shadow: false }) : Object.assign({}, o, { shadow: false });
-    D.needle(c, cx, cy, 0, st);
+    D.needle(c, cx, cy, 90, st);
     D.capture.list = saved;
     return { px: buf(c.canvas.d), w: c.canvas.w, h: c.canvas.h, pw: cx * S, ph: cy * S };
 }
@@ -61,7 +65,8 @@ function dirtyRects(cur, prev, w, h) {
     for (let ty = 0; ty < h; ty += TILE_H) {
         const th = Math.min(TILE_H, h - ty);
         let start = -1;
-        for (let tx = 0; tx <= w; tx += TILE_W) {
+        for (let tx = 0; ; tx = Math.min(w, tx + TILE_W)) {
+            // последний шаг - ровно на w: закрывает отрезок у правого края при любой ширине
             let dirty = false;
             if (tx < w) {
                 const tw = Math.min(TILE_W, w - tx);
@@ -72,6 +77,7 @@ function dirtyRects(cur, prev, w, h) {
             }
             if (dirty && start < 0) start = tx;
             if (!dirty && start >= 0) { runs.push({ x: start, y: ty, w: Math.min(tx, w) - start, h: th }); start = -1; }
+            if (tx >= w) break;
         }
     }
     if (!runs.length) return null;
@@ -132,10 +138,11 @@ class ClusterOut {
     _drop() {
         if (!this.cr) return;
         if (this.bg) this.cr.drop(this.bg);
-        if (this.live) this.cr.drop(this.live);
+        (this.tiles || []).forEach((t) => { if (t.ref) this.cr.drop(t.ref); }); this.tiles = [];
         this.hands.forEach((h) => { this.cr.drop(h.ref); if (h.sh) this.cr.drop(h.sh); });
         (this.masks || []).forEach((r) => this.cr.drop(r)); this.masks = [];
-        this.bg = this.live = null; this.hands = []; this.panelId = null; this.prev = null;
+        if (this.topMask) { this.cr.drop(this.topMask); this.topMask = 0; }
+        this.bg = null; this.hands = []; this.panelId = null;
     }
     /** новая панель: фон и пустой живой слой */
     _build(p) {
@@ -144,13 +151,26 @@ class ClusterOut {
         c.clear('#000000');
         p.back(c);
         this.bg = this.cr.image({ target: 'panel', klass: 'content', z: 0, x: 0, y: OY, w: CW, h: CH, iw: CW, ih: CH });
-        this.cr.pixels(this.bg, null, crop(c.canvas.d, Buffer.alloc(CW * CH * 4)));
+        const bgPx = crop(c.canvas.d, Buffer.alloc(CW * CH * 4));
+        this.cr.pixels(this.bg, null, bgPx);
+        // кусок фона над стрелками (верх панели до maskTop): закрывает стрелку постоянной длины выше рисок
+        this.topMask = 0;
+        if (p.maskTop) {
+            const mh = Math.min(CH, Math.round(p.maskTop * S));
+            this.topMask = this.cr.image({ target: 'panel', klass: 'content', z: 60, x: 0, y: OY, w: CW, h: mh, iw: CW, ih: mh });
+            this.cr.pixels(this.topMask, null, Buffer.from(bgPx.slice(0, CW * mh * 4)));
+        }
         this.liveCv = new ScaledCanvas(1600, 520, S);
         this.liveCv.clear([0, 0, 0, 0]);
         this.cur = Buffer.alloc(CW * CH * 4);
-        this.prev = Buffer.alloc(CW * CH * 4);
-        this.live = this.cr.image({ target: 'panel', klass: 'content', z: 100, x: 0, y: OY, w: CW, h: CH, iw: CW, ih: CH });
-        this.cr.pixels(this.live, null, Buffer.from(this.prev));
+        // живое - не одним слоем на весь экран (5 МБ: блок показывает слой, только когда тот дошёл
+        // целиком, а канал 2-5,5 МБ/с, и при переключениях он не успевал), а кусками 240x231 (0,2 МБ):
+        // кусок заводится, когда в нём впервые что-то нарисовано, и шлёт только изменившееся
+        this.tiles = [];
+        for (let ty = 0; ty < CH; ty += TH_T) for (let tx = 0; tx < CW; tx += TW_T) {
+            const w = Math.min(TW_T, CW - tx), h = Math.min(TH_T, CH - ty);
+            this.tiles.push({ x: tx, y: ty, w, h, ref: 0, cur: Buffer.alloc(w * h * 4), prev: Buffer.alloc(w * h * 4) });
+        }
         // узкие чёрные поля сверху и снизу поверх стрелок: длинная стрелка «Копейки» с осью ниже окна
         // не вылезает за край
         this.masks = [[0, OY], [OY + CH, OYB]].filter((b) => b[1] > 0).map((b) => {
@@ -164,23 +184,21 @@ class ClusterOut {
         this.log.info('cluster: panel ' + p.id + ' built');
     }
     _hand(i, n) {
-        // картинка стрелки не выше 720 px (предел блока): длинную («Копейка» у края шкалы) строим
-        // короче и растягиваем по длине (sy)
-        const maxLen = Math.floor(700 / S) - (n.o.tail || 0) - 16, base = Math.min(n.o.len, maxLen);
-        const o = base < n.o.len ? Object.assign({}, n.o, { len: base }) : n.o;
-        n = Object.assign({}, n, { o });
+        // стрелка переменной длины («Копейка»: до ряда рисок) - на приборах постоянной наибольшей длины
+        // (lenMax); лишнее над рисками закрывает кусок фона (maskTop панели)
+        if (n.o.lenMax) n = Object.assign({}, n, { o: Object.assign({}, n.o, { len: n.o.lenMax, tipColor: null }) });
         const ni = needleImage(n.o, false);
         const at = (img, dx, dy) => ({ x: Math.round((n.cx - CROPX) * S + dx - img.pw), y: Math.round(OY + n.cy * S + dy - img.ph) });
         const p0 = at(ni, 0, 0);
-        const h = { len: base, ang: n.ang, sy: 1 };
+        const h = { ang: n.ang };
         h.ref = this.cr.image({ target: 'panel', klass: 'content', z: 20 + i, x: p0.x, y: p0.y, w: ni.w, h: ni.h, iw: ni.w, ih: ni.h,
-            px: ni.pw, py: ni.ph, sampling: 'bilinear', rotate: n.ang });
+            px: ni.pw, py: ni.ph, sampling: 'bilinear', rotate: n.ang - 90 });
         if (!h.ref) this.log.warn('cluster: needle ' + i + ' refused (' + ni.w + 'x' + ni.h + ')');
         this.cr.pixels(h.ref, null, ni.px);
         if (n.o.shadow !== false) {
             const si = needleImage(n.o, true), p1 = at(si, 4 * S, 6 * S);
             h.sh = this.cr.image({ target: 'panel', klass: 'content', z: 10, x: p1.x, y: p1.y, w: si.w, h: si.h, iw: si.w, ih: si.h,
-                px: si.pw, py: si.ph, sampling: 'bilinear', rotate: n.ang });
+                px: si.pw, py: si.ph, sampling: 'bilinear', rotate: n.ang - 90 });
             this.cr.pixels(h.sh, null, si.px);
         }
         return h;
@@ -204,17 +222,27 @@ class ClusterOut {
         list.forEach((n, i) => {
             let h = this.hands[i];
             if (!h) { h = this.hands[i] = this._hand(i, n); return; }
-            const sy = n.o.len / h.len, set = {};
-            if (Math.abs(n.ang - h.ang) > 0.04) { set.rotate = n.ang; h.ang = n.ang; }
-            if (Math.abs(sy - h.sy) > 0.002) { set.sy = sy; h.sy = sy; }
-            if (set.rotate !== undefined || set.sy !== undefined) { this.cr.set(h.ref, set); if (h.sh) this.cr.set(h.sh, set); }
+            if (Math.abs(n.ang - h.ang) > 0.04) {
+                h.ang = n.ang;
+                const set = { rotate: n.ang - 90 };
+                this.cr.set(h.ref, set);
+                if (h.sh) this.cr.set(h.sh, set);
+            }
         });
         if (redraw) {
-            const cur = crop(this.liveCv.canvas.d, this.cur), rects = dirtyRects(cur, this.prev, CW, CH);
-            if (rects) {
-                this.cr.pixels(this.live, rects, packRects(cur, CW, rects));
-                cur.copy(this.prev);
-            }
+            const cur = crop(this.liveCv.canvas.d, this.cur);
+            this.tiles.forEach((t) => {
+                for (let y = 0; y < t.h; y++) { const a = ((t.y + y) * CW + t.x) * 4; cur.copy(t.cur, y * t.w * 4, a, a + t.w * 4); }
+                if (t.cur.equals(t.prev)) return;
+                if (!t.ref) {
+                    t.ref = this.cr.image({ target: 'panel', klass: 'content', z: 100, x: t.x, y: OY + t.y, w: t.w, h: t.h, iw: t.w, ih: t.h });
+                    this.cr.pixels(t.ref, null, Buffer.from(t.cur));
+                } else {
+                    const rects = dirtyRects(t.cur, t.prev, t.w, t.h);
+                    if (rects) this.cr.pixels(t.ref, rects, packRects(t.cur, t.w, rects));
+                }
+                t.cur.copy(t.prev);
+            });
             const cost = Date.now() - now;
             this.liveCost = this.liveCost ? this.liveCost * 0.8 + cost * 0.2 : cost;
         }

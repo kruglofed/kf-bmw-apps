@@ -147,6 +147,9 @@ const KOP = (() => {
     const NUM_Y = 160, T0 = 196, T1 = 262, num = '#f6f4ee', red = '#e0301e';
     // цифры стоят в ряд через равные промежутки, риски и стрелка смотрят на ось внизу (веер)
     const ang = (v) => { const xv = XL + Math.max(-2, Math.min(VMAX * 1.02, v)) / VMAX * (XR - XL); return Math.atan2(xv - PX, PY - NUM_Y) / D.RAD; };
+    // на приборах (cluster.js) стрелка постоянной длины: до рисок при самом большом наклоне; выше рисок
+    // её закрывает кусок фона (maskTop)
+    const LEN_MAX = (PY - 204) / Math.cos(Math.max(Math.abs(ang(-2)), Math.abs(ang(VMAX * 1.02))) * D.RAD) + 4;
     const onRay = (a, y) => { const t = (PY - y) / Math.cos(a * D.RAD); return [PX + Math.sin(a * D.RAD) * t, y]; };
     // бензин слева, вода справа: короткие дуги, ось внизу у края
     const fuel = { cx: 250, cy: 410, r: 140, min: 0, max: 1, a0: -72, a1: -24 };
@@ -168,7 +171,7 @@ const KOP = (() => {
     const lamps = [['МАСЛО', '#ff3b2a', null], ['ЗАРЯД', '#ff3b2a', null], ['РЕЗЕРВ', '#ffb020', 'reserve'], ['ПЕРЕГРЕВ', '#ff3b2a', 'hot'],
         ['ГАБАРИТ', '#38c95a', null], ['ДАЛЬНИЙ', '#3d7bff', null], ['РУЧНИК', '#ff3b2a', null]];
     return {
-        id: 'kopeyka', title: 'Копейка',
+        id: 'kopeyka', title: 'Копейка', maskTop: 200,
         needles: {
             spd: { src: 'speed', min: 0, max: VMAX, w: 7.5, z: 0.5, cable: 0.018, kick: 10, kickRate: 0.5, stopMin: -2, stopMax: VMAX * 1.02 },
             fuel: { src: 'fuel', min: 0, max: 1, w: 1, z: 1, stopMin: -0.04, stopMax: 1.04 },
@@ -198,7 +201,7 @@ const KOP = (() => {
             // стрелка спидометра: от оси под окном до ряда рисок (длина - до y = 204 при любом угле),
             // видна выше нижней полосы
             const a = ang(x.spd), len = (PY - 204) / Math.cos(a * D.RAD);
-            D.needle(c, PX, PY, a, { len, tail: 0, w: 13, tip: 3.6, color: num, tipColor: red, tipLen: 34 });
+            D.needle(c, PX, PY, a, { len, lenMax: LEN_MAX, tail: 0, w: 13, tip: 3.6, color: num, tipColor: red, tipLen: 34 });
             // нижняя полоса: обороты, одометр, вода цифрой
             c.fillRect(110, 404, 1380, 116, '#030303');     // до низа: под полосой стрелку не видно
             c.fillRect(110, 404, 1380, 2, withAlpha(num, 0.55));
