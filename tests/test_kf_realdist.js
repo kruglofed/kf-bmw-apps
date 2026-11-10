@@ -49,3 +49,15 @@ assert.strictEqual(back.odo(5000), null, 'без одометра реально
 back.car(50000);
 near(back.odo(5000), 50000 + 102 + 5000, 0.01, 'с поправкой пробега');
 console.log('kf_probeg realdist: ok');
+
+// запас хода: по реальному расходу, а пока его нет - запас машины / долю одометра
+{
+    const { realRange } = require('../apps/kf_probeg/realdist');
+    let r = realRange(60, 10, 200, 0.35);
+    assert.strictEqual(r.how, 'cons'); near(r.km, 600, 0.01, 'запас по расходу');
+    r = realRange(60, null, 200, 0.4);
+    assert.strictEqual(r.how, 'ratio'); near(r.km, 500, 0.01, 'запас по доле одометра');
+    assert.strictEqual(realRange(60, null, 200, null), null, 'без доли одометра не угадываем');
+    assert.strictEqual(realRange(null, null, null, 0.4), null, 'без данных');
+    assert.strictEqual(realRange(60, null, 200, 0.01), null, 'неправдоподобная доля');
+}

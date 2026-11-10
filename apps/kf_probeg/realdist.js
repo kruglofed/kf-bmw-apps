@@ -81,4 +81,17 @@ class RealDistance {
     toJSON() { return { carOdo0: this.carOdo0, counted: Math.round(this.counted * 1000) / 1000, start: this.start }; }
 }
 
-module.exports = { RealDistance };
+/**
+ * Реальный запас хода, км.
+ * Лучше всего - остаток в баке на реальный расход (л/100 км по реальным км).
+ * Пока расхода нет - запас хода машины, пересчитанный в реальные км: машина считает его
+ * в км своего одометра, а одометр насчитывает только долю ratio реального пути.
+ * Возвращает { km, how: 'cons' | 'ratio' } или null.
+ */
+function realRange(tank, avg, carRange, ratio) {
+    if (isNum(tank) && isNum(avg) && avg > 0) return { km: tank / avg * 100, how: 'cons' };
+    if (isNum(carRange) && carRange >= 0 && isNum(ratio) && ratio >= 0.05 && ratio <= 1.2) return { km: carRange / ratio, how: 'ratio' };
+    return null;
+}
+
+module.exports = { RealDistance, realRange };

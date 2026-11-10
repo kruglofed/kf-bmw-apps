@@ -33,7 +33,7 @@ const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const { withAlpha } = require('./kit/canvas');
 const { Logbook, per100 } = require('./logbook');
-const { RealDistance } = require('./realdist');
+const { RealDistance, realRange } = require('./realdist');
 const { Service } = require('./service');
 const { Drive, rate, sum, dayKey } = require('./drive');
 const { Prices } = require('./prices');
@@ -191,7 +191,7 @@ mgu.run({
         function demoCar() {
             const s = (Date.now() - demoT0) / 1000;
             return { real: demoLb.odo, carOdo: 41980 + Math.round((demoLb.odo - 53250) * 0.35), ratio: 0.35, carOdo0: 41980, since: Date.now() - 34 * DAY, tank: demoLb.tank,
-                range: Math.round(demoLb.tank / 11.4 * 100), speed: 62 + 8 * Math.sin(s / 7),
+                range: Math.round(demoLb.tank / 11.4 * 100 * 0.35), ratioOk: 0.35, speed: 62 + 8 * Math.sin(s / 7),
                 trip: { km: 23.4 + s / 60, moveMs: 31 * 60000 + s * 1000 }, bc: { cons: 31.8, cu: 'л/100 км' } };
         }
 
@@ -227,9 +227,12 @@ mgu.run({
             G.panel(cv, t, 808, 44, 768, 232, 'Топливо');
             big(cv, t, 832, 172, isNum(d.tank) ? String(Math.round(d.tank)) : '--', 'л', 76);
             const c = L.current(), a = L.average(), avg = c && isNum(c.avg) && c.km >= 100 ? c.avg : isNum(a.avg) ? a.avg : c && isNum(c.avg) ? c.avg : null;
-            const range = isNum(avg) && isNum(d.tank) ? d.tank / avg * 100 : d.range;
-            cv.text(isNum(avg) ? 'запас хода, реальный' : 'запас хода (машина)', 1552, 124, 22, t.dim, { align: 'right' });
-            cv.text(isNum(range) ? km(range) + ' км' : '--', 1552, 170, 44, isNum(range) ? t.text : t.dim, { align: 'right', font: 'bold' });
+            // два запаса хода рядом: что пишет машина (в км её одометра) и реальный
+            const rr = realRange(d.tank, avg, d.range, d.ratioOk);
+            cv.text('запас хода, машина', 1250, 124, 22, t.dim, { align: 'right' });
+            cv.text(isNum(d.range) ? km(d.range) + ' км' : '--', 1250, 170, 40, isNum(d.range) ? t.text : t.dim, { align: 'right', font: 'bold' });
+            cv.text(rr && rr.how === 'ratio' ? 'реальный, примерно' : 'запас хода, реальный', 1552, 124, 22, t.dim, { align: 'right' });
+            cv.text(rr ? (rr.how === 'ratio' ? '≈' : '') + km(rr.km) + ' км' : '--', 1552, 170, 44, rr ? t.accent : t.dim, { align: 'right', font: 'bold' });
             const f = isNum(d.tank) ? G.clamp(d.tank / tankSize(), 0, 1) : 0;
             cv.roundRect(832, 196, 720, 14, 7, t.track);
             if (f > 0) cv.roundRect(832, 196, Math.max(14, 720 * f), 14, 7, f < 0.15 ? t.warn : t.accent);
@@ -494,7 +497,7 @@ mgu.run({
             const t = ctx.theme(), cv = ctx.canvas(W, H).clear(t.bg), now = Date.now();
             const demo = demoOn();
             const d = demo ? demoCar() : { real: rd.odo(offset()), carOdo: car.odo !== null ? car.odo : car.odoAlt, carOdo0: rd.carOdo0, since: rd.start,
-                ratio: rd.ratio(), tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
+                ratio: rd.ratio(), ratioOk: rd.counted >= 50 ? rd.ratio() : null, tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
             const L = demo ? demoLb : lb;
             [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawService][page](cv, t, d, L, now, demo);
             const late = demo ? 0 : overdue();
