@@ -412,7 +412,10 @@ mgu.run({
                 big(cv, t, 48, 196, isNum(c.avg) ? f1(c.avg) : '--', 'л/100', 64, t.accent);
                 cv.text(km(c.km) + ' км', 500, 164, 28, t.text, { align: 'right', font: 'bold' });
                 cv.text(f1(c.l) + ' л', 500, 198, 24, t.dim, { align: 'right' });
-                if (!isNum(c.avg)) cv.text('расход - после 20 км', 500, 230, 20, t.dim, { align: 'right' });
+                // сколько ещё проехать: по реальному расходу (этот бак от 100 км, иначе средний по бакам)
+                const rr = realRange(d.tank, avgCons(L), d.range, d.ratioOk);
+                cv.text(rr ? 'хватит на ' + (rr.how === 'ratio' ? '~' : '') + km(rr.km) + ' км' : !isNum(c.avg) ? 'расход - после 20 км' : '',
+                    500, 230, 20, rr ? t.text : t.dim, { align: 'right', font: rr ? 'bold' : null });
             }
 
             // цена топлива этого бака
