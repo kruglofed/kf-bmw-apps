@@ -147,6 +147,11 @@ mgu.run({
                 sv.settle(now);
                 const carOdo = car.odo !== null ? car.odo : car.odoAlt;
                 if (carOdo !== null) rd.car(carOdo);
+                // пункты из заказ-нарядов - на вкладку ТО, с реальным пробегом на дату наряда
+                Costs.RECEIPTS.forEach((rc) => {
+                    const k = Costs.receiptKm(rc, rd.odo(0), carOdo, rd.counted >= 50 ? rd.ratio() : null);
+                    rc.items.forEach((it) => { if (k) sv.receipt(it.id, Costs.dateMs(rc.date), k.km, k.est); });
+                });
                 // в учёт дней и заправок идёт реальный пробег без поправки: поправка лишь сдвигает показ
                 const odo = rd.odo(0);
                 if (odo === null && car.tank === null) return;
@@ -514,7 +519,7 @@ mgu.run({
                 const conf = !demo && sv.confirming(it.id, now);
                 return [{ text: it.name, color: i === sel ? 'accent' : null, font: i === sel ? 'bold' : null },
                     { text: iv, color: 'dim' },
-                    st.last ? km(st.last.km + off) + ' км, ' + dateOf(st.last.t) : { text: conf ? 'нажмите ещё раз' : 'не отмечено', color: conf ? 'warn' : 'dim' },
+                    st.last ? (st.last.est ? '≈' : '') + km(st.last.km + off) + ' км, ' + dateOf(st.last.t) + (st.last.rcpt ? ' (наряд)' : '') : { text: conf ? 'нажмите ещё раз' : 'не отмечено', color: conf ? 'warn' : 'dim' },
                     st.kmLeft === null ? '' : { text: (st.kmLeft < 0 ? '−' : '') + km(Math.abs(st.kmLeft)) + ' км', color },
                     { text: when(st.daysLeft), color: st.daysLeft !== null && st.daysLeft <= 30 ? color || 'warn' : 'dim' }];
             });

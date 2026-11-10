@@ -13,6 +13,7 @@
  *                                 течение CONFIRM_MS отмечает; нажатие по только что отмеченному
  *                                 пункту (UNDO_MS) отменяет отметку
  *       -> { kind: 'confirm'|'done'|'undone'|'noodo', item }
+ *   sv.receipt(id, t, km, est)    пункт сделан по заказ-наряду (не сохраняется, задаётся при каждом запуске)
  *   sv.toJSON()
  */
 const CONFIRM_MS = 6000, UNDO_MS = 120000, KEEP = 6;
@@ -44,6 +45,7 @@ class Service {
             });
         }
         this.pending = null;      // { id, t } - ждём подтверждения
+        this.rcpt = {};           // id -> { t, km, rcpt: true, est } - из заказ-нарядов (costs.js), не сохраняется
         this.ver = 0;
     }
 
@@ -54,7 +56,17 @@ class Service {
             .map((b) => (b.id === 'oil' && isNum(o.oilKm) ? Object.assign({}, b, { km: o.oilKm }) : b));
     }
 
-    last(id) { const a = this.log[id]; return a && a.length ? a[a.length - 1] : null; }
+    /** последняя отметка: своя кнопкой или из заказ-наряда - что позже */
+    last(id) {
+        const a = this.log[id], m = a && a.length ? a[a.length - 1] : null, r = this.rcpt[id] || null;
+        return m && r ? (r.t > m.t ? r : m) : m || r;
+    }
+
+    /** пункт сделан по заказ-наряду: дата и реальный пробег тогда (est - пробег примерный) */
+    receipt(id, t, km, est) {
+        if (!isNum(t) || !isNum(km)) { delete this.rcpt[id]; return; }
+        this.rcpt[id] = { t, km: Math.round(km), rcpt: true, est: !!est };
+    }
 
     status(item, odo, now) {
         const last = this.last(item.id);
@@ -70,7 +82,7 @@ class Service {
     }
 
     press(id, odo, now) {
-        const last = this.last(id);
+        const lg = this.log[id], last = lg && lg.length ? lg[lg.length - 1] : null;
         if (last && last.fresh && now - last.t < UNDO_MS && (!this.pending || this.pending.id !== id)) {
             this.log[id].pop();
             if (!this.log[id].length) delete this.log[id];

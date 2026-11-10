@@ -9,7 +9,8 @@
  * Для каждого пункта берётся последний заказ-наряд, в котором он есть.
  *
  * Заказ-наряды записаны здесь, потому что ввести их на головном устройстве нечем.
- * Новый - добавить в RECEIPTS (дата, сумма, пункты с суммами; сумма пунктов = итог по наряду).
+ * Новый - добавить в RECEIPTS (дата, сумма, пробег в наряде, пункты с суммами; сумма пунктов = итог).
+ * Пункты нарядов отмечаются и на вкладке ТО (см. receiptKm).
  *
  *   toPerKm(opts)          { total, items: [{ id, name, cost, km, perKm, date }] }
  *                          opts: { oilKm, kmPerDay }  (kmPerDay - средний пробег в день, если известен)
@@ -29,7 +30,7 @@ const LIFE = {
 
 const RECEIPTS = [
     {
-        date: '2026-10-27', no: '1919144', total: 52000,
+        date: '2026-10-27', no: '1919144', total: 52000, carOdo: 97900,   // carOdo - пробег в наряде, по одометру машины
         items: [
             // работы 900 + сброс интервала 300; масло 7 л 14 000, фильтр 2 400, очиститель 600
             { id: 'oil', cost: 900 + 300 + 14000 + 2400 + 600 },
@@ -70,4 +71,15 @@ function paid(fromMs, toMs, receipts) {
         .reduce((a, r) => a + r.total, 0);
 }
 
-module.exports = { toPerKm, paid, lifeKm, RECEIPTS, LIFE };
+/**
+ * Реальный пробег на момент наряда. В наряде пробег по одометру машины, а одометр со стоп-пробегом
+ * насчитывает только долю ratio пути: значит с наряда реально проехано (одометр сейчас - в наряде) / ratio.
+ * Без ratio берётся 1: пробег с наряда тогда не меньше этого.
+ */
+function receiptKm(r, realNow, carOdoNow, ratio) {
+    if (!isNum(r.carOdo) || !isNum(realNow) || !isNum(carOdoNow) || carOdoNow < r.carOdo) return null;
+    const ok = isNum(ratio) && ratio >= 0.05 && ratio <= 1.2;
+    return { km: realNow - (carOdoNow - r.carOdo) / (ok ? ratio : 1), est: true, exact: ok };   // всегда примерно: доля одометра могла меняться
+}
+
+module.exports = { toPerKm, paid, lifeKm, receiptKm, dateMs, RECEIPTS, LIFE };

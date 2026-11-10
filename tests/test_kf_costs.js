@@ -20,3 +20,20 @@ near(to.items.find((x) => x.id === 'cabin').km, 12 * 30.44 * 20, 0.1, 'сало�
 assert.strictEqual(C.paid(new Date('2026-10-01').getTime(), new Date('2026-11-10').getTime()), 52000);
 assert.strictEqual(C.paid(new Date('2026-11-01').getTime(), new Date('2026-11-10').getTime()), 0);
 console.log('kf_probeg costs: ok');
+
+// пробег на дату наряда: одометр с наряда +1050 при доле 0,35 = 3000 реальных км назад
+{
+    const r = C.receiptKm(C.RECEIPTS[0], 60000, 98950, 0.35);
+    near(r.km, 57000, 0.01, 'реальный пробег на наряд');
+    assert.strictEqual(C.receiptKm(C.RECEIPTS[0], 60000, 98950, null).km, 58950, 'без доли - как одометр');
+    assert.strictEqual(C.receiptKm(C.RECEIPTS[0], 60000, 90000, 0.35), null, 'одометр меньше, чем в наряде');
+    // на вкладке ТО: отметка из наряда, своя кнопкой - если позже
+    const { Service } = require('../apps/kf_probeg/service');
+    const sv = new Service({ log: { oil: [{ t: C.dateMs('2026-01-01'), km: 40000 }] } });
+    sv.receipt('oil', C.dateMs('2026-10-27'), r.km, true);
+    assert.strictEqual(sv.last('oil').km, 57000);
+    const st = sv.status({ id: 'oil', km: 10000, months: 12 }, 60000, C.dateMs('2026-11-10'));
+    assert.strictEqual(st.kmLeft, 7000, 'осталось до масла');
+    assert.ok(!JSON.stringify(sv.toJSON()).includes('57000'), 'наряд не сохраняется в журнал');
+}
+console.log('kf_probeg costs receipts: ok');
