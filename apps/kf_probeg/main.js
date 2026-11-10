@@ -43,6 +43,7 @@ const W = 1600, H = 520;
 const KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
 const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'Расходы', 'ТО'];
 const SVC_PAGE = PAGES.indexOf('ТО');
+const LEVEL_ERR_L = 1.5;     // погрешность расхода по датчику бака, л
 const CDS2 = 'de.bmw.infotainment.vehicle.CDS2';
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -211,6 +212,11 @@ mgu.run({
             cv.text(value, x + w, y, 28, value.indexOf('--') === 0 ? t.dim : t.text, { align: 'right', font: 'bold' });
         }
 
+        /** датчик бака меряет с точностью около 1,5 л: на малом пути расход ещё неточный */
+        function errNote(k) {
+            if (!isNum(k) || k >= 300) return '';
+            return ' ±' + f1(LEVEL_ERR_L / k * 100);
+        }
         function drawNow(cv, t, d, L, now) {
             const st = L.stats(now);
             // реальный пробег и одометр машины рядом
@@ -237,7 +243,7 @@ mgu.run({
             const f = isNum(d.tank) ? G.clamp(d.tank / tankSize(), 0, 1) : 0;
             cv.roundRect(832, 196, 720, 14, 7, t.track);
             if (f > 0) cv.roundRect(832, 196, Math.max(14, 720 * f), 14, 7, f < 0.15 ? t.warn : t.accent);
-            cv.text('Этот бак: ' + (c && isNum(c.avg) ? f1(c.avg) + ' л/100 км, ' + km(c.km) + ' км' : c ? km(c.km) + ' км, расход после 20 км' : 'ждём данные'),
+            cv.text('Этот бак: ' + (c && isNum(c.avg) ? f1(c.avg) + ' л/100 км' + errNote(c.km) + ', ' + km(c.km) + ' км' : c ? km(c.km) + ' км, расход после 20 км' : 'ждём данные'),
                 832, 252, 24, t.dim);
 
             // эта поездка - по реальному пути, с запуска головного устройства
@@ -421,6 +427,11 @@ mgu.run({
             const c = L.current(), a = L.average();
             return c && isNum(c.avg) && c.km >= 100 ? c.avg : isNum(a.avg) ? a.avg : c && isNum(c.avg) ? c.avg : null;
         }
+        /** откуда взят расход: км, на которых он посчитан (для оценки точности) */
+        function consKm(L) {
+            const c = L.current(), a = L.average();
+            return c && isNum(c.avg) && c.km >= 100 ? c.km : isNum(a.avg) ? a.km : c && isNum(c.avg) ? c.km : null;
+        }
         /** деньги на топливо за дни fromKey..toKey (по уровню в баке и цене бака) */
         function fuelSpent(L, fromKey, toKey) {
             const at = (x) => P().at(x);
@@ -437,7 +448,7 @@ mgu.run({
             const p = G.panel(cv, t, 24, 44, 600, 468, 'Стоимость 1 км'), ex = p.y + p.h - G.BOTTOM;
             big(cv, t, 48, 186, isNum(allKm) ? rk(allKm) : rk(to.total) + '+', 'руб/км', 88, t.accent);
             cv.fillRect(48, 222, 552, 1, withAlpha(t.tick, 0.4));
-            line(cv, t, 48, 266, 552, 'Топливо' + (isNum(cons) ? ' (' + f1(cons) + ' л/100)' : ''), isNum(fuelKm) ? rk(fuelKm) + ' руб/км' : '-- нужен расход');
+            line(cv, t, 48, 266, 552, 'Топливо' + (isNum(cons) ? ' (' + f1(cons) + errNote(consKm(L)) + ' л/100)' : ''), isNum(fuelKm) ? rk(fuelKm) + ' руб/км' : '-- нужен расход');
             line(cv, t, 48, 310, 552, 'Техобслуживание', rk(to.total) + ' руб/км');
             const gap = 26 + Math.round(ex / 6);
             to.items.forEach((it, i) => {
