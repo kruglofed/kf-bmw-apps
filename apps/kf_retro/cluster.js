@@ -107,6 +107,7 @@ class ClusterOut {
         this.panelId = null; this.bg = null; this.live = null; this.hands = [];
         this.liveCv = null; this.prev = null; this.liveAt = 0;
         this.state = 'выкл'; this.shown = false;
+        this.layerState = {}; this.lastRefused = ''; this.cap = null;
     }
     available() {
         if (this.Client) return true;
@@ -123,13 +124,15 @@ class ClusterOut {
         if (this.cr) return;
         const cr = this.cr = new this.Client('kf_retro', process.env.KF_CLUSTER_SOCK || undefined);
         cr.on('layer', (ref, state, reason) => {
+            this.layerState[ref] = { state, reason: reason || '' };
             if (this.bg && ref === this.bg) {
                 this.state = state === 'shown' ? 'на приборах' : 'ждём приборы';
                 if (state !== 'shown') this.log.info('cluster: panel ' + state + (reason ? ' (' + reason + ')' : ''));
             }
         });
         cr.on('target', (name, state, holder, reason) => { if (name === 'panel') this.log.info('cluster: target ' + state + (holder ? ' holder ' + holder : '') + (reason ? ' ' + reason : '')); });
-        cr.on('refused', (op, ref, reason) => this.log.warn('cluster: refused ' + op + ' ' + ref + ': ' + reason));
+        cr.on('refused', (op, ref, reason) => { this.lastRefused = op + ': ' + reason; this.log.warn('cluster: refused ' + op + ' ' + ref + ': ' + reason); });
+        cr.on('budget', (cap, max, reason) => { this.cap = cap; this.log.info('cluster: budget ' + cap + '/' + max + ' KB/s ' + (reason || '')); });
         cr.on('disconnected', () => { this.state = 'ждём приборы'; });
         // после переподключения клиент сам делает слои заново со всеми пикселями и углами
         cr.connect();
@@ -247,6 +250,23 @@ class ClusterOut {
             this.liveCost = this.liveCost ? this.liveCost * 0.8 + cost * 0.2 : cost;
         }
         this.shown = true;
+    }
+    /** одна строка о состоянии слоёв на приборах: для фото, когда что-то не показывается */
+    diag() {
+        if (!this.cr || !this.panelId) return '';
+        const refs = [this.bg].concat(this.hands.map((h) => h.ref), this.hands.filter((h) => h.sh).map((h) => h.sh),
+            (this.tiles || []).filter((t) => t.ref).map((t) => t.ref), this.masks || [], this.topMask ? [this.topMask] : []).filter(Boolean);
+        const n = {}, why = {};
+        refs.forEach((r) => {
+            const st = this.layerState[r] || { state: 'нет ответа', reason: '' };
+            n[st.state] = (n[st.state] || 0) + 1;
+            if (st.state !== 'shown' && st.reason) why[st.reason] = (why[st.reason] || 0) + 1;
+        });
+        const tilesN = (this.tiles || []).filter((t) => t.ref).length;
+        const parts = Object.keys(n).map((k) => k + ' ' + n[k]);
+        const w = Object.keys(why).slice(0, 2).map((k) => k + ' x' + why[k]);
+        return 'приборы: слоёв ' + refs.length + ' (кусков ' + tilesN + '): ' + parts.join(', ') + (w.length ? ' · ' + w.join('; ') : '') +
+            (this.cap ? ' · канал ' + this.cap + ' КБ/с' : '') + (this.lastRefused ? ' · отказ ' + this.lastRefused : '');
     }
     hide() {
         if (this.shown) this.log.info('cluster: hidden');

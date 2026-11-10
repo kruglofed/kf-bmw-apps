@@ -134,6 +134,15 @@ mgu.run({
                 { key: 'panel_' + q.id, primary: i === idx }));
             G.button(cv, t, 16 + PANELS.length * (w + gap), y, w, h, 'Настройки', () => ctx.display._click('BTN_SETTINGS'), { key: 'settings' });
         }
+        /* строка состояния вывода на приборы (что показано, что ждёт и почему) - для фото при неполадках */
+        function clusterLine(cv, t) {
+            if (!out.shown) return;
+            const s = out.diag();
+            if (!s) return;
+            const y = cv.own ? 452 : 512;
+            cv.fillRect(0, y - 20, 1600, 26, withAlpha('#000000', 0.7));
+            cv.text(s, 16, y, 17, '#ffd27a', { literal: true });
+        }
 
         async function render() {
             step();
@@ -142,6 +151,7 @@ mgu.run({
             cv.blit(G.layer('retro|' + p.id, W, H, (c) => p.back(c), cv.textScale), 0, 0);
             p.live(cv, d, x);
             pickRow(cv, t);
+            clusterLine(cv, t);
             G.frame(cv, t, PANELS.map((q) => q.title), idx, badges(d));
             await ui.image('MAIN_GFX', cv);
         }
