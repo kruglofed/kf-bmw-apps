@@ -19,13 +19,13 @@
 const CONFIRM_MS = 6000, UNDO_MS = 120000, KEEP = 6;
 const MONTH = 30.44 * 86400000;
 
-// интервалы - распространённые для G05 в российских условиях (короче, чем у BMW), их видно на экране
+// интервалы - как меняет владелец (масло и фильтры каждые 8 000 км, топливный - 15 000), их видно на экране
 const BASE = [
-    { id: 'oil', name: 'Масло и масляный фильтр', km: 10000, months: 12 },
-    { id: 'air', name: 'Воздушный фильтр', km: 30000, months: 24 },
-    { id: 'cabin', name: 'Салонный фильтр', km: 15000, months: 12 },
+    { id: 'oil', name: 'Масло и масляный фильтр', km: 8000, months: 12 },
+    { id: 'air', name: 'Воздушный фильтр', km: 8000, months: 24 },
+    { id: 'cabin', name: 'Салонный фильтр', km: 8000, months: 12 },
     { id: 'plugs', name: 'Свечи зажигания', km: 60000, months: 48, engine: 'petrol' },
-    { id: 'fuel', name: 'Топливный фильтр', km: 60000, months: 48, engine: 'diesel' },
+    { id: 'fuel', name: 'Топливный фильтр', km: 15000, months: 48, engine: 'diesel' },
     { id: 'brake', name: 'Тормозная жидкость', km: null, months: 24 },
     { id: 'pads', name: 'Осмотр тормозов', km: 15000, months: 12 },
     { id: 'atf', name: 'Масло АКПП', km: 60000, months: null },

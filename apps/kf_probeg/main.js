@@ -41,7 +41,7 @@ const Costs = require('./costs');
 
 const W = 1600, H = 520;
 const KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
-const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'Расходы', 'ТО'];
+const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'Расходы', 'ТО', 'Наряды'];
 const SVC_PAGE = PAGES.indexOf('ТО');
 const LEVEL_ERR_L = 1.5;     // погрешность расхода по датчику бака, л
 const CDS2 = 'de.bmw.infotainment.vehicle.CDS2';
@@ -147,9 +147,9 @@ mgu.run({
                 sv.settle(now);
                 const carOdo = car.odo !== null ? car.odo : car.odoAlt;
                 if (carOdo !== null) rd.car(carOdo);
-                // пункты из заказ-нарядов - на вкладку ТО, с реальным пробегом на дату наряда
-                Costs.RECEIPTS.forEach((rc) => {
-                    const k = Costs.receiptKm(rc, rd.odo(0), carOdo, rd.counted >= 50 ? rd.ratio() : null);
+                // пункты из заказ-нарядов - на вкладку ТО, с реальным пробегом на дату наряда (поздний наряд - последним)
+                Costs.RECEIPTS.slice().sort((x, y) => (x.date < y.date ? -1 : 1)).forEach((rc) => {
+                    const k = receiptReal(rc, carOdo);
                     rc.items.forEach((it) => { if (k) sv.receipt(it.id, Costs.dateMs(rc.date), k.km, k.est); });
                 });
                 // в учёт дней и заправок идёт реальный пробег без поправки: поправка лишь сдвигает показ
@@ -244,7 +244,7 @@ mgu.run({
             cv.text('запас хода, машина', 1250, 124, 22, t.dim, { align: 'right' });
             cv.text(isNum(d.range) ? km(d.range) + ' км' : '--', 1250, 170, 40, isNum(d.range) ? t.text : t.dim, { align: 'right', font: 'bold' });
             cv.text(rr && rr.how === 'ratio' ? 'реальный, примерно' : 'запас хода, реальный', 1552, 124, 22, t.dim, { align: 'right' });
-            cv.text(rr ? (rr.how === 'ratio' ? '≈' : '') + km(rr.km) + ' км' : '--', 1552, 170, 44, rr ? t.accent : t.dim, { align: 'right', font: 'bold' });
+            cv.text(rr ? (rr.how === 'ratio' ? '~' : '') + km(rr.km) + ' км' : '--', 1552, 170, 44, rr ? t.accent : t.dim, { align: 'right', font: 'bold' });
             const f = isNum(d.tank) ? G.clamp(d.tank / tankSize(), 0, 1) : 0;
             cv.roundRect(832, 196, 720, 14, 7, t.track);
             if (f > 0) cv.roundRect(832, 196, Math.max(14, 720 * f), 14, 7, f < 0.15 ? t.warn : t.accent);
@@ -446,7 +446,7 @@ mgu.run({
             const st = L.stats(now);
             const days = st.since ? Math.round((now - new Date(st.since + 'T00:00:00').getTime()) / DAY) + 1 : 0;
             const kmPerDay = days >= 7 && isNum(st.month) ? st.month / Math.min(30, days) : null;
-            const to = Costs.toPerKm({ oilKm: Number(settings.get('oilKm')) || 10000, kmPerDay });
+            const to = Costs.toPerKm({ oilKm: Number(settings.get('oilKm')) || 8000, kmPerDay });
             const cons = avgCons(L), fuelKm = isNum(cons) ? cons * price() / 100 : null;
             const allKm = isNum(fuelKm) ? fuelKm + to.total : null;
 
@@ -455,7 +455,7 @@ mgu.run({
             cv.fillRect(48, 222, 552, 1, withAlpha(t.tick, 0.4));
             line(cv, t, 48, 266, 552, 'Топливо' + (isNum(cons) ? ' (реальн. ' + f1(cons) + errNote(consKm(L)) + ' л/100)' : ''), isNum(fuelKm) ? rk(fuelKm) + ' руб/км' : '-- нужен расход');
             line(cv, t, 48, 310, 552, 'Техобслуживание', rk(to.total) + ' руб/км');
-            const gap = 26 + Math.round(ex / 6);
+            const gap = 22 + Math.round(ex / 8);
             to.items.forEach((it, i) => {
                 const y = 352 + i * gap;
                 cv.text(it.name + ': ' + group(it.cost) + ' руб / ' + km(it.km) + ' км', 64, y, 20, t.dim);
@@ -496,9 +496,43 @@ mgu.run({
             return render();
         }
 
+        /* ---------- наряды: история ТО ---------- */
+        /** реальный пробег на дату наряда, примерно: { km, est } или null */
+        function receiptReal(rc, carOdo) {
+            return Costs.receiptKm(rc, rd.odo(0), carOdo, rd.counted >= 50 ? rd.ratio() : null);
+        }
+        function drawReceipts(cv, t, d, L, now, demo) {
+            const off = demo ? 0 : offset();
+            const realOf = (rc) => (demo ? Costs.receiptKm(rc, demoLb.odo, 98950, 0.35) : receiptReal(rc, d.carOdo));
+            const list = Costs.RECEIPTS.slice().sort((x, y) => (x.date < y.date ? 1 : -1));
+            const p = G.panel(cv, t, 24, 44, 1552, 468, 'История ТО по заказ-нарядам'), ey = p.y + p.h - G.BOTTOM;
+            const cols = [{ label: 'Дата', w: 150 }, { label: 'Наряд', w: 120 }, { label: 'Одометр', w: 150, align: 'right' },
+                { label: 'Реальный ~', w: 170, align: 'right' }, { label: '', w: 30 }, { label: 'Что сделано', w: 684, size: 20 }, { label: 'Сумма', w: 200, align: 'right' }];
+            const rows = list.map((rc) => {
+                const r = realOf(rc);
+                return [dateOf(Costs.dateMs(rc.date)), { text: rc.no, color: 'dim' }, km(rc.carOdo), r ? km(r.km + off) : '--', '',
+                    rc.what || '', { text: rub(rc.total), font: 'bold' }];
+            });
+            const rowH = 44 + Math.max(0, Math.floor(ey / 4));
+            G.table(cv, t, 48, 100, 1504, cols, rows, { rowH, size: 24 });
+            // между нарядами: одометр и реальный путь
+            let y = 160 + list.length * rowH + 24;
+            const all = list.reduce((a, rc) => a + rc.total, 0);
+            cv.text('Всего на ТО и ремонт: ' + rub(all) + ' за ' + list.length + ' ' + (list.length === 1 ? 'наряд' : list.length < 5 ? 'наряда' : 'нарядов'), 48, y, 24, t.text, { font: 'bold' });
+            for (let i = 0; i + 1 < list.length && i < 2; i++) {
+                const a = list[i + 1], b = list[i], ra = realOf(a), rb = realOf(b);
+                const days = Math.round((Costs.dateMs(b.date) - Costs.dateMs(a.date)) / DAY);
+                y += 32;
+                cv.text(dateOf(Costs.dateMs(a.date)) + ' – ' + dateOf(Costs.dateMs(b.date)) + ': ' + days + ' дн, одометр +' + km(b.carOdo - a.carOdo) + ' км'
+                    + (ra && rb ? ', реально ~' + km(rb.km - ra.km) + ' км' : ''), 48, y, 22, t.dim);
+            }
+            cv.text('Реальный пробег на дату наряда пересчитан из одометра по доле, которую он насчитывает - поэтому примерно. Новый наряд - пришлите фото',
+                48, 492 + ey, 20, t.dim);
+        }
+
         /* ---------- ТО ---------- */
         let sel = 0, note = null;              // выбранный пункт; подсказка после нажатия { text, until }
-        const svcItems = () => sv.items({ engine: settings.get('engine') || 'diesel', oilKm: Number(settings.get('oilKm')) || 10000 });
+        const svcItems = () => sv.items({ engine: settings.get('engine') || 'diesel', oilKm: Number(settings.get('oilKm')) || 8000 });
         const SV_TOP = 100, SV_ROW = 38;
         let svRowH = SV_ROW;               // высота строки на последнем кадре - для касаний
         function when(days) {
@@ -519,7 +553,7 @@ mgu.run({
                 const conf = !demo && sv.confirming(it.id, now);
                 return [{ text: it.name, color: i === sel ? 'accent' : null, font: i === sel ? 'bold' : null },
                     { text: iv, color: 'dim' },
-                    st.last ? (st.last.est ? '≈' : '') + km(st.last.km + off) + ' км, ' + dateOf(st.last.t) + (st.last.rcpt ? ' (наряд)' : '') : { text: conf ? 'нажмите ещё раз' : 'не отмечено', color: conf ? 'warn' : 'dim' },
+                    st.last ? (st.last.est ? '~' : '') + km(st.last.km + off) + ' км, ' + dateOf(st.last.t) + (st.last.rcpt ? ' (наряд)' : '') : { text: conf ? 'нажмите ещё раз' : 'не отмечено', color: conf ? 'warn' : 'dim' },
                     st.kmLeft === null ? '' : { text: (st.kmLeft < 0 ? '−' : '') + km(Math.abs(st.kmLeft)) + ' км', color },
                     { text: when(st.daysLeft), color: st.daysLeft !== null && st.daysLeft <= 30 ? color || 'warn' : 'dim' }];
             });
@@ -567,7 +601,7 @@ mgu.run({
             const d = demo ? demoCar() : { real: rd.odo(offset()), carOdo: car.odo !== null ? car.odo : car.odoAlt, carOdo0: rd.carOdo0, since: rd.start,
                 ratio: rd.ratio(), ratioOk: rd.counted >= 50 ? rd.ratio() : null, tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
             const L = demo ? demoLb : lb;
-            [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawCosts, drawService][page](cv, t, d, L, now, demo);
+            [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawCosts, drawService, drawReceipts][page](cv, t, d, L, now, demo);
             const late = demo ? 0 : overdue();
             G.frame(cv, t, PAGES, page, [demo && { text: 'DEMO' }, late && { text: 'ТО: ' + late, color: 'crit' }]);
             await ui.image('MAIN_GFX', cv);
