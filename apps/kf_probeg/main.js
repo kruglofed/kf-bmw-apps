@@ -37,11 +37,12 @@ const { RealDistance, realRange } = require('./realdist');
 const { Service } = require('./service');
 const { Drive, rate, sum, dayKey } = require('./drive');
 const { Prices } = require('./prices');
+const Costs = require('./costs');
 
 const W = 1600, H = 520;
 const KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
-const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'ТО'];
-const SVC_PAGE = 5;
+const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'Расходы', 'ТО'];
+const SVC_PAGE = PAGES.indexOf('ТО');
 const CDS2 = 'de.bmw.infotainment.vehicle.CDS2';
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -413,6 +414,57 @@ mgu.run({
             { rowH, size: 24, empty: 'Заправки появятся здесь: приложение замечает, когда уровень в баке вырос на 5 л и больше' });
         }
 
+        /* ---------- расходы: топливо и ТО на 1 км ---------- */
+        const rk = (x) => (isNum(x) ? x.toFixed(2).replace('.', ',') : '--');
+        /** средний расход, л/100: текущий бак от 100 км, иначе средний по бакам, иначе текущий */
+        function avgCons(L) {
+            const c = L.current(), a = L.average();
+            return c && isNum(c.avg) && c.km >= 100 ? c.avg : isNum(a.avg) ? a.avg : c && isNum(c.avg) ? c.avg : null;
+        }
+        /** деньги на топливо за дни fromKey..toKey (по уровню в баке и цене бака) */
+        function fuelSpent(L, fromKey, toKey) {
+            const at = (x) => P().at(x);
+            return Object.keys(L.fuel).filter((k) => k >= fromKey && k <= toKey).reduce((a, k) => a + (L.fuelCost(k, at) || 0), 0);
+        }
+        function drawCosts(cv, t, d, L, now) {
+            const st = L.stats(now);
+            const days = st.since ? Math.round((now - new Date(st.since + 'T00:00:00').getTime()) / DAY) + 1 : 0;
+            const kmPerDay = days >= 7 && isNum(st.month) ? st.month / Math.min(30, days) : null;
+            const to = Costs.toPerKm({ oilKm: Number(settings.get('oilKm')) || 10000, kmPerDay });
+            const cons = avgCons(L), fuelKm = isNum(cons) ? cons * price() / 100 : null;
+            const allKm = isNum(fuelKm) ? fuelKm + to.total : null;
+
+            const p = G.panel(cv, t, 24, 44, 600, 468, 'Стоимость 1 км'), ex = p.y + p.h - G.BOTTOM;
+            big(cv, t, 48, 186, isNum(allKm) ? rk(allKm) : rk(to.total) + '+', 'руб/км', 88, t.accent);
+            cv.fillRect(48, 222, 552, 1, withAlpha(t.tick, 0.4));
+            line(cv, t, 48, 266, 552, 'Топливо' + (isNum(cons) ? ' (' + f1(cons) + ' л/100)' : ''), isNum(fuelKm) ? rk(fuelKm) + ' руб/км' : '-- нужен расход');
+            line(cv, t, 48, 310, 552, 'Техобслуживание', rk(to.total) + ' руб/км');
+            const gap = 26 + Math.round(ex / 6);
+            to.items.forEach((it, i) => {
+                const y = 352 + i * gap;
+                cv.text(it.name + ': ' + group(it.cost) + ' руб / ' + km(it.km) + ' км', 64, y, 20, t.dim);
+                cv.text(rk(it.perKm), 600, y, 20, t.dim, { align: 'right' });
+            });
+
+            const today = dayKey(now), y = dayKey(now - DAY), dd = new Date(now);
+            const mStart = dd.getFullYear() + '-' + pad2(dd.getMonth() + 1) + '-01';
+            const per = [['Сегодня', st.today, today, today], ['Вчера', st.yesterday, y, y], ['За 7 дней', st.week, dayKey(now - 6 * DAY), today],
+                ['С начала месяца', st.thisMonth, mStart, today], ['За 30 дней', st.month, dayKey(now - 29 * DAY), today]];
+            const rp = G.panel(cv, t, 648, 44, 928, 468, 'Потрачено'), ry = rp.y + rp.h - G.BOTTOM;
+            const cols = [{ label: 'Период', w: 240 }, { label: 'Реальные км', w: 170, align: 'right' }, { label: 'Топливо', w: 170, align: 'right' },
+                { label: 'ТО', w: 150, align: 'right' }, { label: 'Всего', w: 174, align: 'right' }];
+            const rows = per.map((r) => {
+                const k = isNum(r[1]) ? r[1] : null, f = k === null ? null : fuelSpent(L, r[2], r[3]), s = k === null ? null : k * to.total;
+                return [r[0], k === null ? '--' : km(k), rub(f), rub(s), { text: k === null ? '--' : rub(f + s), font: 'bold' }];
+            });
+            const rowH = 44 + Math.max(0, Math.floor(ry / 5));
+            G.table(cv, t, 672, 100, 904, cols, rows, { rowH, size: 25 });
+            const pay = Costs.RECEIPTS.slice(-1)[0];
+            cv.text('Топливо - сколько ушло из бака по его цене. ТО - доля по км: ' + rk(to.total) + ' руб за каждый км', 672, 440 + ry, 20, t.dim);
+            if (pay) cv.text('Последний заказ-наряд: ' + group(pay.total) + ' руб, ' + dateOf(new Date(pay.date + 'T12:00:00').getTime())
+                + '. Оплачено за 30 дней: ' + rub(Costs.paid(now - 30 * DAY, now)), 672, 470 + ry, 20, t.dim);
+        }
+
         /* ---------- цена топлива: кнопки ---------- */
         const FUEL_PAGE = PAGES.indexOf('Заправки');
         let priceNote = null;
@@ -499,7 +551,7 @@ mgu.run({
             const d = demo ? demoCar() : { real: rd.odo(offset()), carOdo: car.odo !== null ? car.odo : car.odoAlt, carOdo0: rd.carOdo0, since: rd.start,
                 ratio: rd.ratio(), ratioOk: rd.counted >= 50 ? rd.ratio() : null, tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
             const L = demo ? demoLb : lb;
-            [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawService][page](cv, t, d, L, now, demo);
+            [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawCosts, drawService][page](cv, t, d, L, now, demo);
             const late = demo ? 0 : overdue();
             G.frame(cv, t, PAGES, page, [demo && { text: 'DEMO' }, late && { text: 'ТО: ' + late, color: 'crit' }]);
             await ui.image('MAIN_GFX', cv);
