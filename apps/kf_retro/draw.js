@@ -8,6 +8,8 @@ const { withAlpha, mix } = require('./kit/canvas');
 const { angleOf, drumDigits } = require('./needles');
 
 const RAD = Math.PI / 180;
+/** capture.list = [] - needle() не рисует, а складывает { cx, cy, ang, o } (вывод на приборы) */
+const capture = { list: null };
 const pt = (cx, cy, a, r) => [cx + Math.sin(a * RAD) * r, cy - Math.cos(a * RAD) * r];
 
 /** риски шкалы: n делений от a0 до a1, каждая every-я - крупная */
@@ -70,6 +72,8 @@ function face(c, cx, cy, r, color, edge) {
  * shadow (true), glow (цвет свечения) }
  */
 function needle(c, cx, cy, ang, o) {
+    // на приборах (cluster.js) стрелки - отдельные поворачиваемые слои: собираем их, не рисуя
+    if (capture.list) { capture.list.push({ cx, cy, ang, o }); return; }
     const perp = (p, d) => [p[0] + Math.sin((ang + 90) * RAD) * d, p[1] - Math.cos((ang + 90) * RAD) * d];
     const shape = (dx, dy, grow, col) => {
         const tip = pt(cx + dx, cy + dy, ang, o.len + grow), tail = pt(cx + dx, cy + dy, ang, -(o.tail || 0) - grow);
@@ -79,6 +83,10 @@ function needle(c, cx, cy, ang, o) {
     if (o.shadow !== false) shape(4, 6, 0, [0, 0, 0, 110]);
     if (o.glow) shape(0, 0, 3, withAlpha(o.glow, 0.28));
     shape(0, 0, 0, o.color);
+    if (o.tipColor) { // кончик другого цвета (красный у «Копейки»)
+        const L = o.tipLen || 34, a = pt(cx, cy, ang, o.len - L), b = pt(cx, cy, ang, o.len - 1);
+        c.line(a[0], a[1], b[0], b[1], (o.tip || 2) + 1.5, o.tipColor);
+    }
     if (o.stripe) { // светлая полоска по центру (стрелки BMW)
         const a = pt(cx, cy, ang, o.len * 0.25), b = pt(cx, cy, ang, o.len - 4);
         c.line(a[0], a[1], b[0], b[1], 1.5, withAlpha('#ffffff', 0.45));
@@ -182,4 +190,4 @@ function chromeBar(c, x, y, w, h) {
     c.gradientRect(x, y, w, h, [[0, '#f2f4f6'], [0.35, '#9aa0a6'], [0.55, '#5a5f65'], [1, '#d4d8dc']]);
 }
 
-module.exports = { RAD, pt, ticks, numbers, zone, bezel, face, needle, hub, drum, lamp, bulb, clockHands, clockFace, rivet, wood, chromeBar, withAlpha, mix };
+module.exports = { RAD, capture, pt, ticks, numbers, zone, bezel, face, needle, hub, drum, lamp, bulb, clockHands, clockFace, rivet, wood, chromeBar, withAlpha, mix };

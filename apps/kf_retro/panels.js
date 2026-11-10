@@ -86,7 +86,7 @@ const MOSK = (() => {
             const v = x.spd, xe = xOf(v), col = v < 60 ? ['#7be08a', '#2c8f3a'] : v < 100 ? ['#ffe07a', '#c79a12'] : ['#ff8a64', '#c1301a'];
             if (xe > X0 + 1) c.gradientRect(X0, 216, xe - X0, 30, [[0, col[0]], [1, col[1]]]);
             c.fillRect(xe - 2, 210, 4, 42, '#fff4e0');
-            D.drum(c, 710, 348, 6, 30, 38, d.odo, { bg: '#111', fg: '#eee', lastBg: '#e8e2d0', lastFg: '#111', mask: '#0a0a0a', frame: '#555' });
+            D.drum(c, 710, 362, 6, 30, 36, d.odo, { bg: '#111', fg: '#eee', lastBg: '#e8e2d0', lastFg: '#111', mask: '#0a0a0a', frame: '#555' });
             dialNeedle(c, water, x.water, { len: 64, tail: 12, w: 6, tip: 2, color: '#ff6a2a', hubR: 9 });
             dialNeedle(c, oil, x.oil, { len: 50, tail: 10, w: 5, tip: 2, color: '#ff6a2a', hubR: 8 });
             dialNeedle(c, fuel, x.fuel, { len: 64, tail: 12, w: 6, tip: 2, color: '#ff6a2a', hubR: 9 });
@@ -195,17 +195,12 @@ const KOP = (() => {
         live(c, d, x) {
             sideNeedle(c, fuel, x.fuel);
             sideNeedle(c, water, x.water);
-            // стрелка спидометра: от оси снизу, видна выше нижней полосы
-            const a = ang(x.spd), tip = onRay(a, 204), base = onRay(a, 440);
-            const n = [Math.cos(a * D.RAD), Math.sin(a * D.RAD)];
-            const q = (p, w) => [[p[0] + n[0] * w, p[1] + n[1] * w], [p[0] - n[0] * w, p[1] - n[1] * w]];
-            const tq = q(tip, 1.8), bq = q(base, 5);
-            c.quad([[tq[0][0] + 4, tq[0][1] + 6], [tq[1][0] + 4, tq[1][1] + 6], [bq[1][0] + 4, bq[1][1] + 6], [bq[0][0] + 4, bq[0][1] + 6]], [0, 0, 0, 120]);
-            c.quad([tq[0], tq[1], bq[1], bq[0]], num);
-            const rt = onRay(a, 204), rb = onRay(a, 238);
-            c.line(rt[0], rt[1], rb[0], rb[1], 3.5, red);
+            // стрелка спидометра: от оси под окном до ряда рисок (длина - до y = 204 при любом угле),
+            // видна выше нижней полосы
+            const a = ang(x.spd), len = (PY - 204) / Math.cos(a * D.RAD);
+            D.needle(c, PX, PY, a, { len, tail: 0, w: 13, tip: 3.6, color: num, tipColor: red, tipLen: 34 });
             // нижняя полоса: обороты, одометр, вода цифрой
-            c.fillRect(110, 404, 1380, 64, '#030303');
+            c.fillRect(110, 404, 1380, 116, '#030303');     // до низа: под полосой стрелку не видно
             c.fillRect(110, 404, 1380, 2, withAlpha(num, 0.55));
             c.text(isNum(d.rpm) ? String(Math.round(d.rpm / 10) * 10) : '--', 470, 446, 30, num, { align: 'right', font: 'num', literal: true });
             c.text('об/мин', 480, 446, 18, withAlpha(num, 0.65), { literal: true });

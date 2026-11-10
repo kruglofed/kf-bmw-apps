@@ -11,12 +11,16 @@
  * Показания настоящие: скорость, обороты, температура воды и масла, топливо в баке, одометр,
  * передача, запас хода. Повадки стрелок (инерция, дрожание, тросик) - needles.js; дрожание
  * настраивается. Приложение только читает данные машины.
+ *
+ * На приборную панель (12,3" за рулём) выбранная панель выводится через сервис cluster-render
+ * (cluster.js), если он установлен из Store: поверх штатных стрелок, под контрольными лампами BMW.
  */
 const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const Car = require('./kit/car');
 const { Needle, OdoRoll, isNum } = require('./needles');
 const { PANELS } = require('./panels');
+const { ClusterOut } = require('./cluster');
 
 const W = 1600, H = 520;
 const KOMBI = 'de.bmw.infotainment.KombiIF';
@@ -69,19 +73,22 @@ mgu.run({
         const ids = PANELS.map((p) => p.id);
         let idx = Math.max(0, ids.indexOf(settings.get('panel')));
         let needles = {};
+        let last = 0, frameD = null, frameX = {};
         function open(i) {
             idx = (i + PANELS.length) % PANELS.length;
             const p = PANELS[idx];
-            needles = {};
+            needles = {}; frameD = null;
             Object.keys(p.needles).forEach((k) => { needles[k] = new Needle(p.needles[k]); if (p.sweep) needles[k].sweep(1500); });
             if (settings.get('panel') !== p.id) { try { settings.set('panel', p.id); } catch (e) { log.warn('save panel: ' + e); } }
             log.info('retro: panel ' + p.id);
         }
         open(idx);
 
-        let last = 0;
-        async function render() {
+        /* один шаг физики стрелок до «сейчас»: его зовут и экран (до 60 раз в секунду), и вывод на
+         * приборы (25 раз), стрелки двигаются по реальному времени, сколько бы раз ни звали */
+        function step() {
             const now = Date.now(), dt = last ? Math.min(0.25, (now - last) / 1000) : 0;
+            if (frameD && dt < 0.004) return;
             last = now;
             const p = PANELS[idx], d = data(dt), k = JITTER[settings.get('jitter')] === undefined ? 1 : JITTER[settings.get('jitter')];
             const x = {};
@@ -89,10 +96,39 @@ mgu.run({
                 const s = p.needles[key], v = d[s.src];
                 x[key] = needles[key].update(isNum(v) ? v * (s.scale || 1) : null, dt, Math.random, k);
             });
+            frameD = d; frameX = x;
+        }
+
+        /* ---------- на приборную панель (cluster-render) ----------
+         * Только с живой скоростью от машины: в демо, без сигнала скорости или когда провайдер скорости
+         * пропал, картинка с приборов убирается и снова видны приборы BMW. */
+        const out = new ClusterOut(log);
+        const speedLive = () => car.subs.some((s) => s && s.iface === 'de.bmw.infotainment.vehicle.Vehicle2' && s.available) && isNum(car.live.speed);
+        let clusterOk = false;
+        setInterval(() => {
+            try {
+                step();
+                const want = settings.get('cluster') !== 'off' && !frameD.demo && speedLive();
+                if (want) { out.show(PANELS[idx], frameD, frameX); clusterOk = out.state === 'на приборах'; } else if (out.shown) { out.hide(); clusterOk = false; }
+                if (!want && settings.get('cluster') !== 'off') out.available();
+            } catch (e) { log.warn('cluster tick: ' + e); }
+        }, 40);
+        function badges(d) {
+            const b = [d.demo && { text: 'DEMO' }];
+            if (settings.get('cluster') === 'off') return b;
+            if (clusterOk) b.push({ text: 'НА ПРИБОРАХ' });
+            else if (out.state === 'нет cluster-render') b.push({ text: 'НЕТ CLUSTER-RENDER', color: 'warn' });
+            else if (out.shown) b.push({ text: 'ЖДЁМ ПРИБОРЫ', color: 'warn' });
+            return b;
+        }
+
+        async function render() {
+            step();
+            const p = PANELS[idx], d = frameD, x = frameX;
             const t = ctx.theme(), cv = ctx.canvas(W, H).clear('#000000');
             cv.blit(G.layer('retro|' + p.id, W, H, (c) => p.back(c), cv.textScale), 0, 0);
             p.live(cv, d, x);
-            G.frame(cv, t, PANELS.map((q) => q.title), idx, [d.demo && { text: 'DEMO' }]);
+            G.frame(cv, t, PANELS.map((q) => q.title), idx, badges(d));
             await ui.image('MAIN_GFX', cv);
         }
 
