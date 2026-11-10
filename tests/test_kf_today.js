@@ -48,6 +48,14 @@ const near = (a, b, e, m) => assert.ok(Math.abs(a - b) <= e, (m || '') + ': ' + 
     ];
     const t1 = new Date(2026, 10, 1, 9, 25).getTime(), t2 = new Date(2026, 10, 7, 21, 0).getTime(), t3 = new Date(2026, 10, 9, 12, 5).getTime();
     const m = F.match([{ t: t1, added: 59 }, { t: t2, added: 54 }, { t: t3, added: 40 }], fills);
+    // датчик недосчитал (18 л по баку при 66 л в чеке) - чек всё равно привязывается
+    const tq = new Date(2026, 10, 10, 20, 20).getTime();
+    const mq = F.match([{ t: tq, added: 18 }], [{ date: '2026-11-10', time: '20:25', station: 'Тебойл', grade: 'ДТ-Е-К5', litres: 66.18, price: 81.11, total: 5367.86 }]);
+    assert.strictEqual(mq.get(tq) && mq.get(tq).station, 'Тебойл', 'недосчёт датчика не мешает');
+    // текущий бак - первой строкой, в сравнение не идёт
+    const cr = F.tanks([], mq, 9, { since: tq, km: 12, l: 1.5, partial: false });
+    assert.ok(cr[0].now && cr[0].fill.station === 'Тебойл', 'текущий бак с чеком виден');
+    assert.strictEqual(F.byStation(cr, 9).length, 0, 'текущий бак не в сравнении');
     assert.strictEqual(m.get(t1).station, 'Лукойл', 'по времени и объёму');
     assert.strictEqual(m.get(t2).station, 'Shell', 'через 1,5 ч - тоже');
     assert.ok(!m.has(t3), '10 л в чеке и 40 л по баку - не та заправка');

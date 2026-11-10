@@ -564,7 +564,7 @@ mgu.run({
 
         /* ---------- АЗС: качество топлива по чекам ---------- */
         function drawQuality(cv, t, d, L, now, demo) {
-            const fm = fuelMatches(L), a = L.average(), rows = Fuel.tanks(L.periods, fm.m, a.avg), st = Fuel.byStation(rows, a.avg);
+            const fm = fuelMatches(L), a = L.average(), rows = Fuel.tanks(L.periods, fm.m, a.avg, L.current()), st = Fuel.byStation(rows, a.avg);
             const pct = (x) => (isNum(x) ? (x > 0 ? '+' : '') + Math.round(x) + ' %' : '--');
             const p1 = G.panel(cv, t, 24, 44, 1552, 236, 'Расход по АЗС и топливу (баки от ' + Fuel.MIN_KM + ' км)');
             if (!Fuel.FILLS.length) {
@@ -576,15 +576,15 @@ mgu.run({
                     { label: 'Расход', w: 200, align: 'right' }, { label: 'К своему среднему', w: 220, align: 'right' }, { label: 'Цена', w: 144, align: 'right' }];
                 G.table(cv, t, 48, 100, 1504, cols, st.slice(0, 3).map((x) => [{ text: x.station, font: 'bold' }, x.grade || '--', String(x.n), km(x.km),
                     f1(x.cons) + ' л/100', { text: pct(x.diff), color: isNum(x.diff) ? (x.diff <= -3 ? 'accent' : x.diff >= 3 ? 'warn' : null) : 'dim' },
-                    isNum(x.price) ? rubl(x.price) : '--']), { rowH: 38, size: 23, empty: 'Ещё нет баков от ' + Fuel.MIN_KM + ' км, залитых по чеку' });
+                    isNum(x.price) ? rubl(x.price) : '--']), { rowH: 38, size: 23, empty: 'Сравнение появится, когда бак, залитый по чеку, закроется следующей заправкой (от ' + Fuel.MIN_KM + ' км). Текущий бак - внизу' });
             }
             const tp = G.panel(cv, t, 24, 296, 1552, 216, 'Баки'), ty = tp.y + tp.h - G.BOTTOM;
             const cols2 = [{ label: 'Заправка', w: 160 }, { label: 'АЗС, топливо', w: 420 }, { label: 'Км на баке', w: 180, align: 'right' }, { label: 'Ушло', w: 150, align: 'right' },
                 { label: 'Расход', w: 200, align: 'right' }, { label: 'К своему среднему', w: 240, align: 'right' }, { label: 'Цена', w: 154, align: 'right' }];
-            const fit = Math.max(1, Math.floor((120 + ty) / 36));
-            G.table(cv, t, 48, 352, 1504, cols2, rows.slice(0, fit).map((x) => [dateOf(x.start), x.fill ? x.fill.station + (x.fill.grade ? ' · ' + x.fill.grade : '') : { text: 'нет чека', color: 'dim' },
-                km(x.km) + ' км', f1(x.l) + ' л', isNum(x.cons) ? f1(x.cons) + ' л/100' : '--', pct(x.diff), x.fill && isNum(x.fill.price) ? rubl(x.fill.price) : '--']),
-            { rowH: 36, size: 22, empty: 'Баки появятся после второй замеченной заправки' });
+            const fit = Math.max(1, Math.floor((84 + ty) / 36));
+            G.table(cv, t, 48, 352, 1504, cols2, rows.slice(0, fit).map((x) => [x.now ? { text: dateOf(x.start) + ', сейчас', font: 'bold' } : dateOf(x.start), x.fill ? x.fill.station + (x.fill.grade ? ' · ' + x.fill.grade : '') : { text: 'нет чека', color: 'dim' },
+                km(x.km) + ' км', f1(x.l) + ' л', isNum(x.cons) ? f1(x.cons) + ' л/100' : x.now ? 'после 20 км' : '--', x.now ? (x.km < Fuel.MIN_KM ? 'в работе' : pct(x.diff)) : pct(x.diff), x.fill && isNum(x.fill.price) ? rubl(x.fill.price) : '--']),
+            { rowH: 36, size: 22, empty: 'Баки появятся после первой замеченной заправки' });
             cv.text('Свой средний: ' + (isNum(a.avg) ? f1(a.avg) + ' л/100' : '--') + '. Расход зависит и от дороги, погоды, прогревов: сравнивайте по нескольким бакам.',
                 48, 500 + G.toMargin(ty, 0), 19, t.dim);
         }

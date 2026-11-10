@@ -13,7 +13,8 @@
  * со своим средним, и только по бакам от MIN_KM км.
  *
  *   match(refuels, fills)      Map: время заправки (мс) -> чек.  refuels = [{ t, added }]
- *   tanks(periods, matches, avg)  [{ start, end, km, l, cons, diff, fill }] - баки, новые первыми
+ *   tanks(periods, matches, avg, current)  [{ start, end, km, l, cons, diff, fill, now }] - баки, новые первыми;
+ *                              current (lb.current()) - текущий бак первой строкой (now)
  *   byStation(rows)            [{ key, station, grade, n, km, cons, diff, price }] - по АЗС и марке
  *   FILLS
  * Node 8: без ?. и ??.
@@ -44,7 +45,9 @@ function match(refuels, fills) {
             if (used.has(c.i)) return;
             const dt = Math.abs(c.t - r.t);
             if (dt > MATCH_MS) return;
-            if (isNum(r.added) && isNum(c.f.litres) && Math.abs(c.f.litres - r.added) > Math.max(6, c.f.litres * 0.35)) return;
+            // датчик бака во время заправки запаздывает и чаще недосчитывает: по баку 18 л при 66 л в чеке -
+            // та же заправка; а заметно больше, чем в чеке (40 л по баку при 10 л в чеке) - другая
+            if (isNum(r.added) && isNum(c.f.litres) && (r.added > c.f.litres * 1.4 + 6 || c.f.litres > r.added * 4 + 20)) return;
             if (!best || dt < best.dt) best = { c, dt };
         });
         if (best) { used.add(best.c.i); out.set(r.t, best.c.f); }
@@ -53,11 +56,12 @@ function match(refuels, fills) {
 }
 
 /** баки с расходом: старт бака - заправка period.start; разница со своим средним, % */
-function tanks(periods, matches, avg) {
-    return (periods || []).filter((p) => !p.partial).slice().reverse().map((p) => {
+function tanks(periods, matches, avg, current) {
+    const cur = current && isNum(current.since) && !current.partial ? [{ start: current.since, km: current.km, l: current.l, now: true }] : [];
+    return cur.concat((periods || []).filter((p) => !p.partial).slice().reverse()).map((p) => {
         const cons = p.km >= 20 && p.l > 0 ? p.l / p.km * 100 : null;
         return { start: p.start, end: p.end, km: p.km, l: p.l, cons, diff: isNum(cons) && isNum(avg) && avg > 0 ? (cons / avg - 1) * 100 : null,
-            fill: matches.get(p.start) || null };
+            fill: matches.get(p.start) || null, now: !!p.now };
     });
 }
 
@@ -65,7 +69,7 @@ function tanks(periods, matches, avg) {
 function byStation(rows, avg) {
     const g = {};
     rows.forEach((r) => {
-        if (!r.fill || !isNum(r.cons) || r.km < MIN_KM) return;
+        if (r.now || !r.fill || !isNum(r.cons) || r.km < MIN_KM) return;     // текущий бак - пока не в сравнении
         const key = r.fill.station + ' · ' + (r.fill.grade || '');
         const x = g[key] || (g[key] = { key, station: r.fill.station, grade: r.fill.grade || '', n: 0, km: 0, l: 0, pSum: 0, pN: 0 });
         x.n++; x.km += r.km; x.l += r.l;
