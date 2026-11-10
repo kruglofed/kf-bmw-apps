@@ -17,6 +17,7 @@
  */
 const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
+const { withAlpha } = require('./kit/canvas');
 const Car = require('./kit/car');
 const { Needle, OdoRoll, isNum } = require('./needles');
 const { PANELS } = require('./panels');
@@ -122,12 +123,25 @@ mgu.run({
             return b;
         }
 
+        /* ряд кнопок внизу экрана: каждая панель и «Настройки». Касание или шайба (поворот - выбор, нажатие
+         * - открыть): вкладки сверху на этом экране не помещаются, а полосы кнопок BMW здесь нет.
+         * Рисуется, где экраном управляет приложение (cv.own); иначе кнопки - в полосе BMW. */
+        function pickRow(cv, t) {
+            if (!cv.own) return;
+            const n = PANELS.length + 1, gap = 8, y = 466, h = 44, w = (1600 - 32 - gap * (n - 1)) / n;
+            cv.fillRect(0, y - 8, 1600, 520 - y + 8, withAlpha('#000000', 0.72));
+            PANELS.forEach((q, i) => G.button(cv, t, 16 + i * (w + gap), y, w, h, q.title, () => { open(i); return render(); },
+                { key: 'panel_' + q.id, primary: i === idx }));
+            G.button(cv, t, 16 + PANELS.length * (w + gap), y, w, h, 'Настройки', () => ctx.display._click('BTN_SETTINGS'), { key: 'settings' });
+        }
+
         async function render() {
             step();
             const p = PANELS[idx], d = frameD, x = frameX;
             const t = ctx.theme(), cv = ctx.canvas(W, H).clear('#000000');
             cv.blit(G.layer('retro|' + p.id, W, H, (c) => p.back(c), cv.textScale), 0, 0);
             p.live(cv, d, x);
+            pickRow(cv, t);
             G.frame(cv, t, PANELS.map((q) => q.title), idx, badges(d));
             await ui.image('MAIN_GFX', cv);
         }

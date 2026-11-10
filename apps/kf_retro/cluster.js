@@ -13,7 +13,7 @@
  *           угол (`rotate`) 25 раз в секунду; тень - такой же слой, сдвинутый вниз-вправо;
  *   живое   одометр, лампы, цифры, лента «Москвича» - прозрачный слой поверх стрелок,
  *           перерисовывается 6 раз в секунду, уходят только изменившиеся квадраты.
- * Экран 1600x520 центрального дисплея ложится на приборы в масштабе 1,2 (1920x624, по центру).
+ * Экран 1600x520 центрального дисплея ложится на приборы крупно: масштаб 1,33, пустые края по бокам обрезаны.
  *
  *   const out = new ClusterOut(log);
  *   out.available()                 есть ли cluster-render на блоке
@@ -26,7 +26,16 @@ const { ScaledCanvas } = require('./kit/canvas');
 const D = require('./draw');
 
 const CLIENT = process.env.KF_CLUSTER_CLIENT || '/var/opt/cluster-render/current/cluster_render_client.js';   // env - для проверки на компьютере
-const TW = 1920, TH = 720, S = 1.2, CW = 1920, CH = 624, OY = Math.round((TH - CH) / 2);
+// Экран 1600x520 ложится на приборы крупно: пустые края по 80 px слева и справа обрезаются, остальное
+// растягивается на всю ширину 1920 (масштаб 1,33, без искажений); по высоте 693 из 720, поля сверху и
+// снизу по ~13 px
+const TW = 1920, TH = 720, CROPX = 80, S = TW / (1600 - 2 * CROPX), CW = TW, CH = Math.round(520 * S), OY = Math.floor((TH - CH) / 2);
+const OYB = TH - OY - CH, BIGW = Math.round(1600 * S), SKIP = Math.round(CROPX * S);
+/** кадр 1600x520 в масштабе S (BIGW x CH) -> обрезанный по бокам CW x CH */
+function crop(src, dst) {
+    for (let y = 0; y < CH; y++) { const a = (y * BIGW + SKIP) * 4; dst.set(src.subarray(a, a + CW * 4), y * CW * 4); }
+    return dst;
+}
 const LIVE_MS = 166, TILE_W = 64, TILE_H = 48;
 
 const buf = (u8) => Buffer.from(u8.buffer, u8.byteOffset, u8.length);
@@ -135,27 +144,38 @@ class ClusterOut {
         c.clear('#000000');
         p.back(c);
         this.bg = this.cr.image({ target: 'panel', klass: 'content', z: 0, x: 0, y: OY, w: CW, h: CH, iw: CW, ih: CH });
-        this.cr.pixels(this.bg, null, Buffer.from(buf(c.canvas.d)));
+        this.cr.pixels(this.bg, null, crop(c.canvas.d, Buffer.alloc(CW * CH * 4)));
         this.liveCv = new ScaledCanvas(1600, 520, S);
         this.liveCv.clear([0, 0, 0, 0]);
-        this.prev = Buffer.from(buf(this.liveCv.canvas.d));
+        this.cur = Buffer.alloc(CW * CH * 4);
+        this.prev = Buffer.alloc(CW * CH * 4);
         this.live = this.cr.image({ target: 'panel', klass: 'content', z: 100, x: 0, y: OY, w: CW, h: CH, iw: CW, ih: CH });
         this.cr.pixels(this.live, null, Buffer.from(this.prev));
-        // чёрные поля сверху и снизу картинки (1920x624 на экране 1920x720) поверх стрелок: длинная
-        // стрелка «Копейки» с осью ниже окна не вылезает за край
-        const band = Buffer.alloc(CW * OY * 4);
-        for (let i = 3; i < band.length; i += 4) band[i] = 255;
-        this.masks = [0, OY + CH].map((y) => { const r = this.cr.image({ target: 'panel', klass: 'content', z: 101, x: 0, y, w: CW, h: OY, iw: CW, ih: OY }); this.cr.pixels(r, null, band); return r; });
+        // узкие чёрные поля сверху и снизу поверх стрелок: длинная стрелка «Копейки» с осью ниже окна
+        // не вылезает за край
+        this.masks = [[0, OY], [OY + CH, OYB]].filter((b) => b[1] > 0).map((b) => {
+            const band = Buffer.alloc(CW * b[1] * 4);
+            for (let i = 3; i < band.length; i += 4) band[i] = 255;
+            const r = this.cr.image({ target: 'panel', klass: 'content', z: 101, x: 0, y: b[0], w: CW, h: b[1], iw: CW, ih: b[1] });
+            this.cr.pixels(r, null, band);
+            return r;
+        });
         this.panelId = p.id; this.liveAt = 0;
         this.log.info('cluster: panel ' + p.id + ' built');
     }
     _hand(i, n) {
+        // картинка стрелки не выше 720 px (предел блока): длинную («Копейка» у края шкалы) строим
+        // короче и растягиваем по длине (sy)
+        const maxLen = Math.floor(700 / S) - (n.o.tail || 0) - 16, base = Math.min(n.o.len, maxLen);
+        const o = base < n.o.len ? Object.assign({}, n.o, { len: base }) : n.o;
+        n = Object.assign({}, n, { o });
         const ni = needleImage(n.o, false);
-        const at = (img, dx, dy) => ({ x: Math.round(n.cx * S + dx - img.pw), y: Math.round(OY + n.cy * S + dy - img.ph) });
+        const at = (img, dx, dy) => ({ x: Math.round((n.cx - CROPX) * S + dx - img.pw), y: Math.round(OY + n.cy * S + dy - img.ph) });
         const p0 = at(ni, 0, 0);
-        const h = { len: n.o.len, ang: n.ang, sy: 1 };
+        const h = { len: base, ang: n.ang, sy: 1 };
         h.ref = this.cr.image({ target: 'panel', klass: 'content', z: 20 + i, x: p0.x, y: p0.y, w: ni.w, h: ni.h, iw: ni.w, ih: ni.h,
             px: ni.pw, py: ni.ph, sampling: 'bilinear', rotate: n.ang });
+        if (!h.ref) this.log.warn('cluster: needle ' + i + ' refused (' + ni.w + 'x' + ni.h + ')');
         this.cr.pixels(h.ref, null, ni.px);
         if (n.o.shadow !== false) {
             const si = needleImage(n.o, true), p1 = at(si, 4 * S, 6 * S);
@@ -190,7 +210,7 @@ class ClusterOut {
             if (set.rotate !== undefined || set.sy !== undefined) { this.cr.set(h.ref, set); if (h.sh) this.cr.set(h.sh, set); }
         });
         if (redraw) {
-            const cur = buf(this.liveCv.canvas.d), rects = dirtyRects(cur, this.prev, CW, CH);
+            const cur = crop(this.liveCv.canvas.d, this.cur), rects = dirtyRects(cur, this.prev, CW, CH);
             if (rects) {
                 this.cr.pixels(this.live, rects, packRects(cur, CW, rects));
                 cur.copy(this.prev);
@@ -212,4 +232,4 @@ class ClusterOut {
 /** холст, который ничего не рисует (только чтобы собрать углы стрелок между перерисовками) */
 const NOOP = new Proxy({}, { get: (t, k) => (k === 'clip' || k === 'noclip' ? undefined : () => NOOP) });
 
-module.exports = { ClusterOut, dirtyRects, packRects, needleImage, CLIENT, OY, S };
+module.exports = { ClusterOut, dirtyRects, packRects, needleImage, crop, CLIENT, OY, S, CROPX };
