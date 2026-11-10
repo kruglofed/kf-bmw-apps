@@ -22,7 +22,10 @@ const MATCH_MS = 8 * 3600000, MIN_KM = 50;
 
 // чеки, старые первыми. Пример:
 // { date: '2026-11-10', time: '18:20', station: 'Лукойл', place: 'Москва, Алтуфьевское ш., 50', grade: 'ДТ Евро-5', litres: 52.31, price: 74.5, total: 3897 },
-const FILLS = [];
+const FILLS = [
+    { date: '2026-11-10', time: '20:25', station: 'Тебойл', place: 'АЗС 12003 «Каштановая роща», Шолохово, Дмитровское ш., 2а', grade: 'ДТ-Е-К5',
+        litres: 66.18, price: 81.11, total: 5367.86 },
+];
 
 const isNum = (x) => typeof x === 'number' && isFinite(x);
 /** время чека, мс (местное время блока) */
