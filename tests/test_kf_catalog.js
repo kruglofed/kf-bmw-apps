@@ -32,6 +32,13 @@ assert.strictEqual(m.find((x) => x.field === 'ActualSteeringAngleDriver').iface,
 const de = scan({ x: { 'de.bmw.chassis.Lenkung': { LenkwinkelHinterachse: {}, lenkradwinkel: {} } } });
 assert.ok(de.some((x) => x.field === 'LenkwinkelHinterachse' && x.tag === 'задняя ось'));
 
+// колёса и привод
+assert.strictEqual(tagOf('statusWheelSpeedFrontLeft'), 'колесо');
+assert.strictEqual(tagOf('ActualValueRPMWheel'), 'колесо');
+assert.strictEqual(tagOf('statusTorqueDistributionXDrive'), 'xDrive');
+assert.strictEqual(tagOf('VtgClutchTorque'), 'xDrive');
+assert.ok(has('ActualValueRPMWheel'), 'обороты колеса найдены');
+
 // теги
 assert.strictEqual(tagOf('AngleAcceleratorPedal'), null);
 assert.strictEqual(tagOf('statusSteeringAngle'), 'руль/поворот');

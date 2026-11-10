@@ -22,11 +22,12 @@ const PATHS = [
 // что ищем и как помечаем; порядок задаёт приоритет сортировки
 const TAGS = [
     { tag: 'задняя ось', re: /(rear|hinter|hinten).*(axle|achse|steer|lenk|winkel|angle|wheel|rad)|(axle|achse).*(rear|hinter)|hinterachslenk|rearaxlesteer|rearwheelsteer|integrallenk|hsr/i },
+    { tag: 'xDrive', re: /xdrive|allrad|vtg|torquedistrib|torquesplit|momentenverteil|verteilergetriebe|transfercase|torquevector|lockingclutch/i },
+    { tag: 'колесо', re: /raddrehzahl|radgeschw|wheelspeed|speedwheel|rpmwheel|wheelrpm|wheeltorque|radmoment|radwinkel|wheelangle|wheelsteer|wheelslip|radschlupf/i },
     { tag: 'ось', re: /(axle|achse)(?!erator)/i },
     { tag: 'руль/поворот', re: /steer|lenk(?!rad_heiz)|lenkwinkel|steeringangle/i },
     { tag: 'угол', re: /winkel|angle/i },
     { tag: 'рыскание/крен', re: /yaw|gier|wank|roll|nick|pitch/i },
-    { tag: 'колесо', re: /radwinkel|wheelangle|wheelsteer/i },
 ];
 // мусор: педали, дроссель, прицеп, геометрия
 const SKIP = /pedal|fahrped|drossel|throttle|accelerat|gaspedal|trailer|anhaeng|rectangle|triangle|angular(?!velocity)/i;

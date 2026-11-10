@@ -1,8 +1,8 @@
 {
   "id": "kf_steer",
   "title": "Рулёжка",
-  "description": "Угол руля, рыскание и ускорения живьём, вид машины сверху, и поиск сигнала задней оси в каталоге головного устройства",
-  "version": "1.0.0",
+  "description": "Колёса сверху: поворот передних и задних (интегральная рейка), обороты и тяга на каждом колесе, деление xDrive; угол руля, рыскание и ускорения живьём; поиск сигналов задней оси, колёс и xDrive",
+  "version": "1.1.0",
   "vendor": "custom",
   "loggingId": "OAKR",
   "signals": {
@@ -17,6 +17,10 @@
     },
     "de.bmw.infotainment.vehicle.Vehicle2": {
       "statusCarSpeed2": "rs"
+    },
+    "de.bmw.infotainment.drivingexcitement.FES": {
+      "_optional": "момент мотора в панели",
+      "statusActualValueTorque2": "rs"
     }
   },
   "screens": [
@@ -33,6 +37,8 @@
   ],
   "settings": [
     {"key": "steerRatio", "label": "Передаточное число руля", "type": "number", "default": 15, "steps": [10, 11, 12, 13, 14, 15, 16, 17, 18, 20]},
+    {"key": "steerDir", "label": "Направление руля", "type": "choice", "default": "normal",
+     "options": [["normal", "Как приходит"], ["invert", "Наоборот"]]},
     {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
      "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
     {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",
