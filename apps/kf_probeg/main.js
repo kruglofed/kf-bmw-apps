@@ -243,7 +243,7 @@ mgu.run({
             const f = isNum(d.tank) ? G.clamp(d.tank / tankSize(), 0, 1) : 0;
             cv.roundRect(832, 196, 720, 14, 7, t.track);
             if (f > 0) cv.roundRect(832, 196, Math.max(14, 720 * f), 14, 7, f < 0.15 ? t.warn : t.accent);
-            cv.text('Этот бак: ' + (c && isNum(c.avg) ? f1(c.avg) + ' л/100 км' + errNote(c.km) + ', ' + km(c.km) + ' км' : c ? km(c.km) + ' км, расход после 20 км' : 'ждём данные'),
+            cv.text('Реальный расход: ' + (c && isNum(c.avg) ? f1(c.avg) + ' л/100 км' + errNote(c.km) + ' (' + f1(c.l) + ' л из бака на ' + km(c.km) + ' км)' : c ? 'после 20 км, пока ' + km(c.km) + ' км' : 'ждём данные'),
                 832, 252, 24, t.dim);
 
             // эта поездка - по реальному пути, с запуска головного устройства
@@ -258,7 +258,7 @@ mgu.run({
             label(cv, t, 1330, 372, 'Ср. скорость');
             big(cv, t, 1330, yv, isNum(vs) ? String(Math.round(vs)) : '--', 'км/ч', 56);
             const bc = d.bc || {};
-            cv.text('БК машины: ' + (isNum(bc.cons) ? f1(bc.cons) + ' ' + (bc.cu || 'л/100 км') : '--') + ', считает по одометру', 832, 486 + G.toMargin(by, 26), 22, t.dim);
+            cv.text('БК машины: ' + (isNum(bc.cons) ? f1(bc.cons) + ' ' + (bc.cu || 'л/100 км') : '--') + ' - по стоп-пробегу, неверно', 832, 486 + G.toMargin(by, 26), 22, t.dim);
         }
 
         const P = () => (demoOn() ? demoPr : pr);
@@ -283,7 +283,7 @@ mgu.run({
             const list = D.list(now, 7);
             const cols = [{ label: 'День', w: 170 }, { label: 'Км', w: 140, align: 'right' }, { label: 'В движении', w: 170, align: 'right' },
                 { label: 'Ср. скорость', w: 180, align: 'right' }, { label: 'Макс.', w: 150, align: 'right' }, { label: 'Топливо', w: 150, align: 'right' },
-                { label: 'Стоимость', w: 170, align: 'right' }, { label: 'Расход', w: 190, align: 'right' }, { label: 'Стиль', w: 184, align: 'right' }];
+                { label: 'Стоимость', w: 170, align: 'right' }, { label: 'Реальн. расход', w: 190, align: 'right' }, { label: 'Стиль', w: 184, align: 'right' }];
             const row = (name, x, bold) => [{ text: name, font: bold ? 'bold' : null }, isNum(x.km) ? km(x.km) : '--', hm(x.moveMs),
                 isNum(x.avg) ? Math.round(x.avg) + ' км/ч' : '--', isNum(x.vmax) ? Math.round(x.vmax) + ' км/ч' : '--',
                 isNum(x.fuel) ? f1(x.fuel) + ' л' : '--', rub(x.cost), isNum(x.cons) ? f1(x.cons) + ' л/100' : '--',
@@ -377,7 +377,7 @@ mgu.run({
 
         function drawFuel(cv, t, d, L, now) {
             const c = L.current(), a = L.average(), Pr = P(), demo = demoOn();
-            G.panel(cv, t, 24, 44, 500, 200, 'Текущий бак');
+            G.panel(cv, t, 24, 44, 500, 200, 'Реальный расход, этот бак');
             if (!c) cv.text('Ждём данные от машины', 48, 150, 24, t.dim);
             else {
                 label(cv, t, 48, 118, c.partial ? 'с начала учёта, ' + dateOf(c.since) : 'с заправки ' + dateOf(c.since));
@@ -399,7 +399,7 @@ mgu.run({
             big(cv, t, 564, hs.length > 1 ? 178 : 196, rubl(cur), 'руб/л', hs.length > 1 ? 56 : 64);
             hs.forEach((x, i) => cv.text(x, 564, 230 + (i - hs.length + 1) * 22, 19, warnTxt ? t.warn : t.dim));
 
-            G.panel(cv, t, 1076, 44, 500, 200, 'Средний');
+            G.panel(cv, t, 1076, 44, 500, 200, 'Реальный, средний');
             big(cv, t, 1100, 196, isNum(a.avg) ? f1(a.avg) : '--', 'л/100', 64);
             cv.text(a.n ? a.n + ' ' + (a.n === 1 ? 'бак' : a.n < 5 ? 'бака' : 'баков') + ', ' + km(a.km) + ' км' : 'после первой заправки', 1552, 118, 22, t.dim, { align: 'right' });
             if (isNum(a.avg)) cv.text('~' + group(a.avg * cur) + ' руб / 100 км', 1552, 152, 22, t.dim, { align: 'right' });
@@ -409,7 +409,7 @@ mgu.run({
             const ps = L.periods.slice().reverse().slice(0, fit);
             const cols = [{ label: 'Дата', w: 170 }, { label: 'Реальный пробег', w: 250, align: 'right' }, { label: 'Залито', w: 170, align: 'right' },
                 { label: 'Цена', w: 190, align: 'right' }, { label: 'Сумма', w: 200, align: 'right' }, { label: 'Пробег на баке', w: 250, align: 'right' },
-                { label: 'Расход', w: 274, align: 'right' }];
+                { label: 'Реальный расход', w: 274, align: 'right' }];
             if (ps.some((x) => x.partial)) cv.text('* первый бак: учёт начат не с заправки', 1552, 296, 20, t.dim, { align: 'right' });
             G.table(cv, t, 48, 322, 1504, cols, ps.map((x) => {
                 const p = Pr.at(x.end);
@@ -448,7 +448,7 @@ mgu.run({
             const p = G.panel(cv, t, 24, 44, 600, 468, 'Стоимость 1 км'), ex = p.y + p.h - G.BOTTOM;
             big(cv, t, 48, 186, isNum(allKm) ? rk(allKm) : rk(to.total) + '+', 'руб/км', 88, t.accent);
             cv.fillRect(48, 222, 552, 1, withAlpha(t.tick, 0.4));
-            line(cv, t, 48, 266, 552, 'Топливо' + (isNum(cons) ? ' (' + f1(cons) + errNote(consKm(L)) + ' л/100)' : ''), isNum(fuelKm) ? rk(fuelKm) + ' руб/км' : '-- нужен расход');
+            line(cv, t, 48, 266, 552, 'Топливо' + (isNum(cons) ? ' (реальн. ' + f1(cons) + errNote(consKm(L)) + ' л/100)' : ''), isNum(fuelKm) ? rk(fuelKm) + ' руб/км' : '-- нужен расход');
             line(cv, t, 48, 310, 552, 'Техобслуживание', rk(to.total) + ' руб/км');
             const gap = 26 + Math.round(ex / 6);
             to.items.forEach((it, i) => {
