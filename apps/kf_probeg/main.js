@@ -38,10 +38,12 @@ const { Service } = require('./service');
 const { Drive, rate, sum, dayKey } = require('./drive');
 const { Prices } = require('./prices');
 const Costs = require('./costs');
+const { Today } = require('./today');
+const Fuel = require('./fuel');
 
 const W = 1600, H = 520;
-const KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
-const PAGES = ['Сейчас', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'Расходы', 'ТО', 'Наряды'];
+const CDS = 'de.bmw.infotainment.vehicle.CDS', KOMBI = 'de.bmw.infotainment.KombiIF', VI = 'de.bmw.infrastructure.VehicleInformation', V2 = 'de.bmw.infotainment.vehicle.Vehicle2';
+const PAGES = ['Сейчас', 'Сегодня', 'Неделя', 'Стиль', 'Пробег', 'Заправки', 'АЗС', 'Расходы', 'ТО', 'Наряды'];
 const SVC_PAGE = PAGES.indexOf('ТО');
 const LEVEL_ERR_L = 1.5;     // погрешность расхода по датчику бака, л
 const CDS2 = 'de.bmw.infotainment.vehicle.CDS2';
@@ -73,7 +75,7 @@ mgu.run({
         let page = 0;
 
         /* ---------- что шлёт машина ---------- */
-        const car = { odo: null, odoAlt: null, tank: null, range: null, speed: null, bc: null, at: 0 };
+        const car = { odo: null, odoAlt: null, tank: null, range: null, speed: null, bc: null, at: 0, rpm: null, rpmAt: 0 };
         const got = () => { car.at = Date.now(); };
         const watch = (iface, handlers, poll) => ctx.signals.watch(iface, '1', handlers, log, poll ? { pollMs: poll } : undefined)
             .then((s) => { if (s.error) log.warn(iface + ': ' + s.error); return s; })
@@ -104,6 +106,12 @@ mgu.run({
             dv.speed(now, car.speed, rd.counted - k0, rd.trip.moveMs - m0);
             got();
         } }, 2000);
+        // обороты - для «Сегодня»: когда завели, сколько работал двигатель (опрос: на холостых оборотах
+        // уведомлений почти нет)
+        watch(CDS, { statusEngineSpeed2: (v) => {
+            const r = raw(v, 'actualValueRPMEngineCrankshaft', 65535);
+            if (r !== null) { car.rpm = r * 0.25; car.rpmAt = Date.now(); }
+        } }, 2000);
         // боковое ускорение - для резких поворотов (шкала как в G-Force: x 0,002 - 65 м/с^2)
         watch(CDS2, { statusLateralAccelerationMassCenter: (v) => {
             const a = raw(v, 'lateralAccelerationCentreOfGravity', 65535);
@@ -121,13 +129,14 @@ mgu.run({
         const lb = new Logbook(saved.log);
         const sv = new Service(saved.service);
         const dv = new Drive(saved.drive);
+        const td = new Today(saved.today);
         // первая цена - из настройки прошлой версии, если она была задана
         const pr = new Prices(saved.prices, Number(settings.get('fuelPrice')) || 81);
-        const verOf = () => lb.ver + ':' + rd.ver + ':' + sv.ver + ':' + dv.ver + ':' + pr.ver;
+        const verOf = () => lb.ver + ':' + rd.ver + ':' + sv.ver + ':' + dv.ver + ':' + pr.ver + ':' + td.ver;
         let savedVer = verOf(), savedAt = Date.now();
         function save() {
             try {
-                fs.writeFileSync(FILE + '.tmp', JSON.stringify({ v: 2, real: rd, log: lb, service: sv, drive: dv, prices: pr }));
+                fs.writeFileSync(FILE + '.tmp', JSON.stringify({ v: 2, real: rd, log: lb, service: sv, drive: dv, prices: pr, today: td }));
                 fs.renameSync(FILE + '.tmp', FILE);
                 savedVer = verOf(); savedAt = Date.now();
             } catch (e) { log.warn('save: ' + e); }
@@ -144,6 +153,7 @@ mgu.run({
                 const k0 = rd.counted, m0 = rd.trip.moveMs;
                 rd.tick(now);
                 dv.move(now, rd.counted - k0, rd.trip.moveMs - m0);
+                td.tick(now, car.rpmAt && now - car.rpmAt < 5000 ? car.rpm : null, car.speed);
                 sv.settle(now);
                 const carOdo = car.odo !== null ? car.odo : car.odoAlt;
                 if (carOdo !== null) rd.car(carOdo);
@@ -266,7 +276,20 @@ mgu.run({
             cv.text('БК машины: ' + (isNum(bc.cons) ? f1(bc.cons) + ' ' + (bc.cu || 'л/100 км') : '--') + ' - по стоп-пробегу, неверно', 832, 486 + G.toMargin(by, 26), 22, t.dim);
         }
 
-        const P = () => (demoOn() ? demoPr : pr);
+        /** замеченные заправки и чеки к ним (fuel.js); пересчёт - когда меняются заправки */
+        let fmKey = null, fmVal = null;
+        function fuelMatches(L) {
+            const refs = L.periods.map((x) => ({ t: x.end, added: x.added }));
+            if (L.fill && !L.fill.partial && !refs.some((r) => r.t === L.fill.t)) refs.push({ t: L.fill.t, added: L.fill.added });
+            const key = refs.map((r) => r.t).join(',') + '|' + Fuel.FILLS.length;
+            if (key !== fmKey) { fmKey = key; fmVal = { m: Fuel.match(refs), times: refs.map((r) => r.t) }; }
+            return fmVal;
+        }
+        /** цена: по чеку бака, если он есть, иначе как задана в приложении (prices.js) */
+        const P = () => {
+            const base = demoOn() ? demoPr : pr, fm = fuelMatches(demoOn() ? demoLb : lb);
+            return { at: (x) => Fuel.priceAt(x, fm.times, fm.m, (y) => base.at(y)) };
+        };
         const price = () => P().at(Date.now());
         const rubl = (x) => (isNum(x) ? x.toFixed(2).replace('.', ',') : '--');
         const rub = (x) => (isNum(x) ? group(x) + ' руб' : '--');
@@ -412,14 +435,16 @@ mgu.run({
             const tp = G.panel(cv, t, 24, 260, 1552, 252, 'Последние заправки'), ty = tp.y + tp.h - G.BOTTOM;
             const rowH = 38, fit = Math.max(1, Math.floor((156 + ty) / rowH));
             const ps = L.periods.slice().reverse().slice(0, fit);
-            const cols = [{ label: 'Дата', w: 170 }, { label: 'Реальный пробег', w: 250, align: 'right' }, { label: 'Залито', w: 170, align: 'right' },
-                { label: 'Цена', w: 190, align: 'right' }, { label: 'Сумма', w: 200, align: 'right' }, { label: 'Пробег на баке', w: 250, align: 'right' },
-                { label: 'Реальный расход', w: 274, align: 'right' }];
+            const fm = fuelMatches(L);
+            const cols = [{ label: 'Дата', w: 130 }, { label: 'АЗС, топливо', w: 330 }, { label: 'Реальн. пробег', w: 190, align: 'right' }, { label: 'Залито', w: 140, align: 'right' },
+                { label: 'Цена', w: 160, align: 'right' }, { label: 'Сумма', w: 160, align: 'right' }, { label: 'На баке', w: 170, align: 'right' },
+                { label: 'Реальный расход', w: 224, align: 'right' }];
             if (ps.some((x) => x.partial)) cv.text('* первый бак: учёт начат не с заправки', 1552, 296, 20, t.dim, { align: 'right' });
             G.table(cv, t, 48, 322, 1504, cols, ps.map((x) => {
-                const p = Pr.at(x.end);
-                return [dateOf(x.end), km(x.odo1 + (demo ? 0 : offset())) + ' км', isNum(x.added) ? '+' + f1(x.added) + ' л' : '--',
-                    rubl(p) + ' руб', isNum(x.added) ? group(x.added * p) + ' руб' : '--', km(x.km) + ' км',
+                const p = Pr.at(x.end), fl = fm.m.get(x.end);
+                return [dateOf(x.end), fl ? { text: fl.station + (fl.grade ? ' · ' + fl.grade : ''), font: 'bold' } : { text: 'нет чека', color: 'dim' },
+                    km(x.odo1 + (demo ? 0 : offset())) + ' км', isNum(x.added) ? '+' + f1(fl && isNum(fl.litres) ? fl.litres : x.added) + ' л' : '--',
+                    rubl(p) + ' руб', fl && isNum(fl.total) ? group(fl.total) + ' руб' : isNum(x.added) ? group(x.added * p) + ' руб' : '--', km(x.km) + ' км',
                     isNum(per100(x.km, x.l)) ? { text: f1(per100(x.km, x.l)) + ' л/100' + (x.partial ? '*' : ''), color: x.partial ? 'dim' : null } : '--'];
             }),
             { rowH, size: 24, empty: 'Заправки появятся здесь: приложение замечает, когда уровень в баке вырос на 5 л и больше' });
@@ -479,6 +504,87 @@ mgu.run({
             cv.text('Топливо - сколько ушло из бака по его цене. ТО - доля по км: ' + rk(to.total) + ' руб за каждый км', 672, 440 + ry, 20, t.dim);
             if (pay) cv.text('Последний заказ-наряд: ' + group(pay.total) + ' руб, ' + dateOf(new Date(pay.date + 'T12:00:00').getTime())
                 + '. Оплачено за 30 дней: ' + rub(Costs.paid(now - 30 * DAY, now)), 672, 470 + ry, 20, t.dim);
+        }
+
+        /* ---------- сегодня ---------- */
+        /** часы:минуты в часовом поясе из настроек (у головного устройства бывает UTC) */
+        const tm = (t) => { if (!isNum(t)) return '--'; const off = Number(settings.get('tz')), d0 = new Date(t + (isNum(off) ? off : 3) * 3600000); return pad2(d0.getUTCHours()) + ':' + pad2(d0.getUTCMinutes()); };
+        /** стоимость ТО на 1 км (как на вкладке «Расходы») */
+        function toPerKm(L, now) {
+            const st = L.stats(now), days = st.since ? Math.round((now - new Date(st.since + 'T00:00:00').getTime()) / DAY) + 1 : 0;
+            const kmPerDay = days >= 7 && isNum(st.month) ? st.month / Math.min(30, days) : null;
+            return Costs.toPerKm({ oilKm: Number(settings.get('oilKm')) || 8000, kmPerDay }).total;
+        }
+        function demoToday(now) {
+            const b = new Date(now); b.setHours(7, 42, 0, 0);
+            return { on0: b.getTime() - 60000, on1: now, eng0: b.getTime(), eng1: now, engMs: 2 * 3600000 + 14 * 60000, idleMs: 25 * 60000, starts: 4, stops: 14,
+                mv0: b.getTime() + 3 * 60000, mv1: now - 20 * 60000 };
+        }
+        function drawToday(cv, t, d, L, now, demo) {
+            const key = dayKey(now), T = demo ? demoToday(now) : td.day(key), dd = (demo ? demoDv : dv).day(key), st = L.stats(now);
+            const kmD = isNum(st.today) ? st.today : dd ? dd.km : null;
+            const p = G.panel(cv, t, 24, 44, 760, 468, 'Сегодня, ' + dateOf(now)), ey = p.y + p.h - G.BOTTOM;
+            big(cv, t, 48, 186, isNum(kmD) ? f1(kmD) : '--', 'км', 96, t.accent);
+            cv.fillRect(48, 218, 712, 1, withAlpha(t.tick, 0.4));
+            const avg = dd && dd.moveMs > 60000 ? dd.km / (dd.moveMs / 3600000) : null;
+            const driving = !demo && isNum(d.speed) && d.speed >= 3;
+            const rows = [
+                ['Завёл первый раз', T && T.eng0 ? tm(T.eng0) : T && T.on0 ? tm(T.on0) + ' (включил)' : '--'],
+                ['Конец маршрута', driving ? 'в пути' : T && T.mv1 ? tm(T.mv1) : '--'],
+                ['Двигатель работал', T && T.engMs > 0 ? hm(T.engMs) + ' ч' + (T.idleMs >= 60000 ? ', на месте ' + hm(T.idleMs) : '') : '--'],
+                ['В движении', dd && dd.moveMs > 0 ? hm(dd.moveMs) + ' ч' + (isNum(avg) ? ', ср. ' + Math.round(avg) + ' км/ч' : '') : '--'],
+                ['Остановок от 30 с', T ? String(T.stops) + (T.starts ? ' · заводил ' + T.starts + ' р.' : '') : '--'],
+            ];
+            const gap = 44 + Math.round(ey / rows.length);
+            rows.forEach((r, i) => line(cv, t, 48, 266 + i * gap, 712, r[0], r[1]));
+            if (!demo && (!T || !T.eng0)) cv.text('время двигателя и остановки считаются с этой версии приложения', 48, 266 + rows.length * gap - 14, 19, t.dim);
+
+            // деньги
+            const at = (x) => P().at(x), fuelL = L.fuel[key], fuelR = L.fuelCost(key, at), perKm = toPerKm(L, now);
+            const toR = isNum(kmD) ? kmD * perKm : null, all = (isNum(fuelR) ? fuelR : 0) + (isNum(toR) ? toR : 0);
+            const cons = isNum(fuelL) && isNum(kmD) && kmD >= 20 ? fuelL / kmD * 100 : null;
+            G.panel(cv, t, 808, 44, 768, 276, 'Деньги сегодня');
+            big(cv, t, 832, 168, isNum(fuelR) || isNum(toR) ? group(all) : '--', 'руб', 76, t.accent);
+            cv.text(isNum(kmD) && kmD > 0 && all > 0 ? rk(all / kmD) + ' руб/км' : '', 1552, 168, 30, t.text, { align: 'right', font: 'bold' });
+            line(cv, t, 832, 222, 720, 'Топливо' + (isNum(fuelL) ? ' ' + f1(fuelL) + ' л' + (isNum(cons) ? ', ' + f1(cons) + ' л/100' : '') : ''), rub(fuelR));
+            line(cv, t, 832, 266, 720, 'ТО: ' + rk(perKm) + ' руб/км' + (isNum(kmD) ? ' × ' + f1(kmD) + ' км' : ''), rub(toR));
+            cv.text('топливо - по уровню в баке (точность около 1 л), цена - по чеку бака или из приложения', 832, 304, 18, t.dim);
+
+            // скорость и стиль
+            G.panel(cv, t, 808, 336, 768, 176, 'Как ехал');
+            const r = rate(dd);
+            label(cv, t, 832, 400, 'Макс. скорость');
+            big(cv, t, 832, 448, dd && dd.vmax > 0 ? String(Math.round(dd.vmax)) : '--', 'км/ч', 48);
+            label(cv, t, 1100, 400, 'Стиль');
+            big(cv, t, 1100, 448, r ? String(r.score) : '--', r ? r.label : '', 48, scoreColor(t, r ? r.score : null));
+            cv.text(dd ? 'резких: разгонов ' + dd.acc + ', торможений ' + dd.brk + ', поворотов ' + dd.turn : '', 832, 492, 19, t.dim);
+        }
+
+        /* ---------- АЗС: качество топлива по чекам ---------- */
+        function drawQuality(cv, t, d, L, now, demo) {
+            const fm = fuelMatches(L), a = L.average(), rows = Fuel.tanks(L.periods, fm.m, a.avg), st = Fuel.byStation(rows, a.avg);
+            const pct = (x) => (isNum(x) ? (x > 0 ? '+' : '') + Math.round(x) + ' %' : '--');
+            const p1 = G.panel(cv, t, 24, 44, 1552, 236, 'Расход по АЗС и топливу (баки от ' + Fuel.MIN_KM + ' км)');
+            if (!Fuel.FILLS.length) {
+                cv.text('Чеков пока нет. Пришли мне фото чека с заправки — я добавлю его в приложение,', 48, 150, 26, t.text);
+                cv.text('и здесь появится реальный расход по каждой АЗС и марке топлива.', 48, 188, 26, t.text);
+                cv.text('Чек сам привяжется к заправке, которую приложение заметило по баку, и цена бака возьмётся из чека.', 48, 236, 20, t.dim);
+            } else {
+                const cols = [{ label: 'АЗС', w: 360 }, { label: 'Топливо', w: 300 }, { label: 'Баков', w: 120, align: 'right' }, { label: 'Км', w: 160, align: 'right' },
+                    { label: 'Расход', w: 200, align: 'right' }, { label: 'К своему среднему', w: 220, align: 'right' }, { label: 'Цена', w: 144, align: 'right' }];
+                G.table(cv, t, 48, 100, 1504, cols, st.slice(0, 3).map((x) => [{ text: x.station, font: 'bold' }, x.grade || '--', String(x.n), km(x.km),
+                    f1(x.cons) + ' л/100', { text: pct(x.diff), color: isNum(x.diff) ? (x.diff <= -3 ? 'accent' : x.diff >= 3 ? 'warn' : null) : 'dim' },
+                    isNum(x.price) ? rubl(x.price) : '--']), { rowH: 38, size: 23, empty: 'Ещё нет баков от ' + Fuel.MIN_KM + ' км, залитых по чеку' });
+            }
+            const tp = G.panel(cv, t, 24, 296, 1552, 216, 'Баки'), ty = tp.y + tp.h - G.BOTTOM;
+            const cols2 = [{ label: 'Заправка', w: 160 }, { label: 'АЗС, топливо', w: 420 }, { label: 'Км на баке', w: 180, align: 'right' }, { label: 'Ушло', w: 150, align: 'right' },
+                { label: 'Расход', w: 200, align: 'right' }, { label: 'К своему среднему', w: 240, align: 'right' }, { label: 'Цена', w: 154, align: 'right' }];
+            const fit = Math.max(1, Math.floor((120 + ty) / 36));
+            G.table(cv, t, 48, 352, 1504, cols2, rows.slice(0, fit).map((x) => [dateOf(x.start), x.fill ? x.fill.station + (x.fill.grade ? ' · ' + x.fill.grade : '') : { text: 'нет чека', color: 'dim' },
+                km(x.km) + ' км', f1(x.l) + ' л', isNum(x.cons) ? f1(x.cons) + ' л/100' : '--', pct(x.diff), x.fill && isNum(x.fill.price) ? rubl(x.fill.price) : '--']),
+            { rowH: 36, size: 22, empty: 'Баки появятся после второй замеченной заправки' });
+            cv.text('Свой средний: ' + (isNum(a.avg) ? f1(a.avg) + ' л/100' : '--') + '. Расход зависит и от дороги, погоды, прогревов: сравнивайте по нескольким бакам.',
+                48, 500 + G.toMargin(ty, 0), 19, t.dim);
         }
 
         /* ---------- цена топлива: кнопки ---------- */
@@ -601,7 +707,7 @@ mgu.run({
             const d = demo ? demoCar() : { real: rd.odo(offset()), carOdo: car.odo !== null ? car.odo : car.odoAlt, carOdo0: rd.carOdo0, since: rd.start,
                 ratio: rd.ratio(), ratioOk: rd.counted >= 50 ? rd.ratio() : null, tank: car.tank, range: car.range, speed: car.speed, trip: rd.trip, bc: car.bc };
             const L = demo ? demoLb : lb;
-            [drawNow, drawWeek, drawStyle, drawDays, drawFuel, drawCosts, drawService, drawReceipts][page](cv, t, d, L, now, demo);
+            [drawNow, drawToday, drawWeek, drawStyle, drawDays, drawFuel, drawQuality, drawCosts, drawService, drawReceipts][page](cv, t, d, L, now, demo);
             const late = demo ? 0 : overdue();
             G.frame(cv, t, PAGES, page, [demo && { text: 'DEMO' }, late && { text: 'ТО: ' + late, color: 'crit' }]);
             await ui.image('MAIN_GFX', cv);

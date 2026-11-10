@@ -2,10 +2,14 @@
   "id": "kf_probeg",
   "title": "Пробег и расход",
   "description": "Реальный пробег по скорости машины, не по одометру: по дням, рядом с одометром, и реальный расход и стоимость, цена 1 км (топливо и ТО), стиль езды, ТО по реальному пробегу",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "vendor": "custom",
   "loggingId": "OAKF",
   "signals": {
+    "de.bmw.infotainment.vehicle.CDS": {
+      "_optional": "обороты: когда завели и сколько работал двигатель",
+      "statusEngineSpeed2": "rs"
+    },
     "de.bmw.infotainment.KombiIF": {
       "statusRangeTankStatus": "rs",
       "statusBordcomputerAverage": "rs"
@@ -47,6 +51,7 @@
     {"key": "oilKm", "label": "Замена масла каждые", "type": "number", "unit": "км", "default": 8000, "steps": [5000, 6000, 7000, 7500, 8000, 9000, 10000, 12000, 15000]},
     {"key": "engine", "label": "Двигатель", "type": "choice", "default": "diesel",
      "options": [["diesel", "Дизель"], ["petrol", "Бензин"], ["both", "Показывать всё"]]},
+    {"key": "tz", "label": "Часовой пояс", "type": "number", "unit": "ч от UTC", "default": 3, "steps": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]},
     {"key": "tankSize", "label": "Объём бака", "type": "number", "unit": "л", "default": 80, "steps": [60, 65, 68, 70, 74, 78, 80, 83, 85, 90]},
     {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
      "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
