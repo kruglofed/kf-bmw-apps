@@ -80,4 +80,36 @@ lb.feed(t5 + 2000, { odo: 60000 }); lb.feed(t5 + 3000, { odo: 60001 });
 assert.strictEqual(lb.odo, 60001);
 
 assert.strictEqual(dayKey(t0), '2026-11-01');
+
+/* заправка постепенно: уровень растёт 3 минуты - одна заправка на весь объём, не несколько */
+{
+    const { Logbook } = require('../apps/kf_probeg/logbook');
+    const L = new Logbook(null);
+    let t = new Date(2026, 10, 10, 19, 0).getTime(), odo = 1000;
+    const feed = (tank, speed, n) => { for (let i = 0; i < (n || 4); i++) { L.feed(t, { odo, tank, speed }); t += 1000; } };
+    feed(70, 0, 8);                                       // начало учёта
+    for (let k = 0; k < 50; k++) { odo += 10; feed(70 - k, 60, 2); }   // проехали 500 км, бак до 21 л
+    const events = [];
+    for (let lv = 21; lv <= 87; lv += 0.4) { const r = L.feed(t, { odo, tank: lv, speed: 0 }); if (r.refuel) events.push(r.refuel); t += 1000; }
+    feed(87, 0, 20);
+    assert.ok(events.length >= 1, 'заправка замечена');
+    assert.ok(events.filter((e) => !e.extended).length === 1, 'одна заправка, а не несколько: ' + events.map((e) => e.added).join(', '));
+    const last = events[events.length - 1];
+    assert.ok(Math.abs(last.added - 66) < 2, 'залито ~66 л, а не 5: ' + last.added);
+    assert.ok(Math.abs(L.fill.added - 66) < 2 && Math.abs(L.periods[L.periods.length - 1].added - 66) < 2, 'и в учёте');
+    // через 40 мин и 5 км - уже новая заправка, не продолжение
+    odo += 5; feed(85, 40, 4); t += 40 * 60000; feed(85, 0, 8);
+    const r2 = []; for (let lv = 85; lv <= 95; lv += 0.5) { const r = L.feed(t, { odo, tank: lv, speed: 0 }); if (r.refuel) r2.push(r.refuel); t += 1000; }
+    assert.ok(r2.some((e) => !e.extended), 'новая заправка отдельно');
+}
+/* сохранённая кусками заправка (до 1.9.2) склеивается при загрузке */
+{
+    const { Logbook } = require('../apps/kf_probeg/logbook');
+    const t1 = new Date(2026, 10, 10, 20, 20).getTime();
+    const L = new Logbook({ odo: 98557, tank: 40, low: 40, fill: { t: t1 + 4 * 60000, odo: 98557, tank: 40, added: 13 },
+        periods: [{ start: t1 - 9 * 86400000, end: t1, odo0: 98000, odo1: 98557, km: 557, l: 60, added: 5 }], days: {} });
+    assert.strictEqual(L.fill.added, 18, 'куски сложены');
+    assert.strictEqual(L.fill.t, t1, 'заправка - с первого куска');
+    assert.strictEqual(L.periods[0].added, 18);
+}
 console.log('kf_probeg logbook: ok');

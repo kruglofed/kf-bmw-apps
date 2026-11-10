@@ -11,7 +11,9 @@
  * попадают в период того показания, которое пришло после них, поэтому километры не теряются.
  *
  * Заправки. Уровень бака сглаживается медианой последних показаний. Если он стал выше самого низкого
- * уровня с прошлой заправки на REFUEL_L литров и больше, пока машина стоит, это заправка. Расход за бак =
+ * уровня с прошлой заправки на REFUEL_L литров и больше, пока машина стоит, это заправка. Уровень во время
+ * заправки растёт постепенно (и датчик запаздывает): рост в течение EXTEND_MS на том же месте
+ * добавляется к той же заправке, а не считается новой (раньше 66 л записывались как «+5 л» и «+13 л»). Расход за бак =
  * (уровень после прошлой заправки - уровень перед этой) / км между ними. Пока заправка не замечена ни
  * разу, отсчёт идёт от первого показания (бак помечен "неполный").
  *
@@ -25,6 +27,7 @@
  *   lb.toJSON()
  */
 const REFUEL_L = 5;          // рост уровня на столько литров и больше - заправка
+const EXTEND_MS = 30 * 60000; // рост уровня так скоро после заправки и на том же месте - та же заправка
 const WINDOW = 7;            // показаний бака для медианы
 const WINDOW_MS = 120000;    // старше этого показание в медиану не идёт
 const KEEP_DAYS = 120, KEEP_PERIODS = 12;
@@ -59,6 +62,20 @@ class Logbook {
         if (s.fuelBy && typeof s.fuelBy === 'object') Object.keys(s.fuelBy).forEach((k) => { if (s.fuelBy[k] && typeof s.fuelBy[k] === 'object') this.fuelBy[k] = s.fuelBy[k]; });
         this.win = [];                                              // [t, литры] - не сохраняется
         this.ver = 0;
+        this.mergeSplit();
+    }
+
+    /** заправка, записанная кусками (до 1.9.2): последний бак закрыт первым куском, а текущий начат
+     *  следующим на том же месте через несколько минут - это одна заправка */
+    mergeSplit() {
+        const f = this.fill, p = this.periods[this.periods.length - 1];
+        if (!f || f.partial || !p || f.t === p.end) return;
+        if (f.t - p.end >= 0 && f.t - p.end < EXTEND_MS && isNum(f.odo) && Math.abs(f.odo - p.odo1) < 1) {
+            const added = round((p.added || 0) + (f.added || 0), 1);
+            p.added = added;
+            this.fill = Object.assign({}, f, { t: p.end, added });
+            this.ver++;
+        }
     }
 
     feed(now, x) {
@@ -115,6 +132,16 @@ class Logbook {
             this.low = lv; this.ver++; return null;
         }
         const standing = speed === null || speed < 3;
+        // уровень ещё растёт вскоре после заправки на том же месте: это та же заправка
+        const f0 = this.fill;
+        if (!f0.partial && now - f0.t < EXTEND_MS && odo !== null && Math.abs(odo - f0.odo) < 1 && lv >= f0.tank + 0.5) {
+            const added = round((f0.added || 0) + lv - f0.tank, 1);
+            this.fill = Object.assign({}, f0, { tank: lv, added });
+            const p = this.periods[this.periods.length - 1];
+            if (p && p.end === f0.t) p.added = added;
+            this.low = lv; this.win = []; this.ver++;
+            return { t: f0.t, odo, before: round(lv - added, 1), after: lv, added, extended: true };
+        }
         if (standing && lv - this.low >= REFUEL_L && odo !== null) {
             const f = this.fill, km = odo - f.odo, l = round(f.tank - this.low, 1);
             const refuel = { t: now, odo, before: this.low, after: lv, added: round(lv - this.low, 1) };

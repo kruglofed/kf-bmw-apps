@@ -420,10 +420,12 @@ mgu.run({
             const since = L.fill ? L.fill.t : null, cur = Pr.at(since !== null ? since : now);
             label(cv, t, 564, 118, since !== null && !L.fill.partial ? 'этот бак, с заправки ' + dateOf(since) : 'этот бак');
             const fn = fuelNote && now < fuelNote.until && !demo ? fuelNote : null;
-            const hint = fn ? 'Залито ' + f1(fn.refuel.added) + ' л. Цена другая? Кнопки «Цена топлива»'
+            const chk = L.fill ? fuelMatches(L).m.get(L.fill.t) : null;
+            const hint = chk ? 'по чеку: ' + chk.station + (chk.grade ? ', ' + chk.grade : '') + ', ' + f1(chk.litres) + ' л'
+                : fn ? 'Залито ' + f1(fn.refuel.added) + ' л. Цена другая? Кнопки «Цена топлива»'
                 : priceNote && now < priceNote.until ? priceNote.text : 'меняется кнопками «Цена топлива» в меню';
             const hl = wrap(cv, hint, 20, 472);
-            const hs = hl.slice(0, 2), warnTxt = fn || (priceNote && now < priceNote.until);
+            const hs = hl.slice(0, 2), warnTxt = !chk && (fn || (priceNote && now < priceNote.until));
             big(cv, t, 564, hs.length > 1 ? 178 : 196, rubl(cur), 'руб/л', hs.length > 1 ? 56 : 64);
             hs.forEach((x, i) => cv.text(x, 564, 230 + (i - hs.length + 1) * 22, 19, warnTxt ? t.warn : t.dim));
 
