@@ -141,6 +141,87 @@ const ZHIG = (() => {
     };
 })();
 
+/* =================================================================== Копейка: широкий веер, цифры в ряд, стрелка снизу */
+const KOP = (() => {
+    const PX = 800, PY = 660, VMAX = 200, XL = 228, XR = 1372;   // ось стрелки ниже окна; цифры в ряд от XL до XR
+    const NUM_Y = 160, T0 = 196, T1 = 262, num = '#f6f4ee', red = '#e0301e';
+    // цифры стоят в ряд через равные промежутки, риски и стрелка смотрят на ось внизу (веер)
+    const ang = (v) => { const xv = XL + Math.max(-2, Math.min(VMAX * 1.02, v)) / VMAX * (XR - XL); return Math.atan2(xv - PX, PY - NUM_Y) / D.RAD; };
+    const onRay = (a, y) => { const t = (PY - y) / Math.cos(a * D.RAD); return [PX + Math.sin(a * D.RAD) * t, y]; };
+    // бензин слева, вода справа: короткие дуги, ось внизу у края
+    const fuel = { cx: 250, cy: 410, r: 140, min: 0, max: 1, a0: -72, a1: -24 };
+    const water = { cx: 1350, cy: 410, r: 140, min: 50, max: 130, a0: 72, a1: 24 };
+    const sideScale = (c, g, labels, zone) => {
+        const n = labels.length - 1;
+        for (let i = 0; i <= n * 2; i++) {
+            const a = g.a0 + (g.a1 - g.a0) * i / (n * 2), big = i % 2 === 0;
+            const p0 = pt(g.cx, g.cy, a, g.r - (big ? 30 : 18)), p1 = pt(g.cx, g.cy, a, g.r);
+            c.line(p0[0], p0[1], p1[0], p1[1], big ? 7 : 4, num);
+        }
+        D.zone(c, g.cx, g.cy, g.r - 10, g.r, g.min, g.max, g.a0, g.a1, zone[0], zone[1], red);
+        labels.forEach((s, i) => { const p = pt(g.cx, g.cy, g.a0 + (g.a1 - g.a0) * i / n, g.r + 26); c.text(s, p[0], p[1] + 10, 28, num, { align: 'center', font: 'num', literal: true }); });
+    };
+    const sideNeedle = (c, g, v) => {
+        const a = angleOf(isNum(v) ? v : g.min, g.min, g.max, g.a0, g.a1);
+        D.needle(c, g.cx, g.cy, a, { len: g.r - 6, tail: 0, w: 9, tip: 3, color: num });
+    };
+    const lamps = [['МАСЛО', '#ff3b2a', null], ['ЗАРЯД', '#ff3b2a', null], ['РЕЗЕРВ', '#ffb020', 'reserve'], ['ПЕРЕГРЕВ', '#ff3b2a', 'hot'],
+        ['ГАБАРИТ', '#38c95a', null], ['ДАЛЬНИЙ', '#3d7bff', null], ['РУЧНИК', '#ff3b2a', null]];
+    return {
+        id: 'kopeyka', title: 'Копейка',
+        needles: {
+            spd: { src: 'speed', min: 0, max: VMAX, w: 7.5, z: 0.5, cable: 0.018, kick: 10, kickRate: 0.5, stopMin: -2, stopMax: VMAX * 1.02 },
+            fuel: { src: 'fuel', min: 0, max: 1, w: 1, z: 1, stopMin: -0.04, stopMax: 1.04 },
+            water: { src: 'coolant', min: 50, max: 130, w: 1.8, z: 1, stopMin: 47, stopMax: 133 },
+        },
+        back(c) {
+            c.gradientRect(0, 0, 1600, 520, [[0, '#1c1c1e'], [1, '#0a0a0b']]);
+            c.roundRect(50, 60, 1500, 452, 120, '#020202');
+            c.strokeRoundRect(50, 60, 1500, 452, 120, 3, '#2e2e30');
+            c.gradientRect(170, 64, 1260, 24, [[0, withAlpha('#ffffff', 0.06)], [1, withAlpha('#ffffff', 0)]]);
+            // цифры в ряд и веер рисок
+            for (let v = 0; v <= VMAX; v += 20) { const p = onRay(ang(v), NUM_Y); c.text(String(v), p[0], NUM_Y, 40, num, { align: 'center', font: 'num', literal: true }); }
+            for (let v = 0; v <= VMAX; v += 10) {
+                const a = ang(v), big = v % 20 === 0, p0 = onRay(a, T0), p1 = onRay(a, big ? T1 : T1 - 20);
+                c.line(p0[0], p0[1], p1[0], p1[1], big ? 9 : 5, num);
+                if (!big) { const r0 = onRay(a, T1 - 12), r1 = onRay(a, T1 + 6); c.line(r0[0], r0[1], r1[0], r1[1], 4, red); }
+            }
+            c.text('км/ч', 800, 300, 20, withAlpha(num, 0.6), { align: 'center', literal: true });
+            sideScale(c, fuel, ['0', '1/2', '1'], [0, 0.12]);
+            sideScale(c, water, ['50', '90', '130'], [110, 130]);
+            c.text('БЕНЗИН', 316, 350, 18, withAlpha(num, 0.75), { align: 'center', font: 'bold', literal: true, spacing: 1 });
+            c.text('ВОДА', 1284, 350, 18, withAlpha(num, 0.75), { align: 'center', font: 'bold', literal: true, spacing: 1 });
+        },
+        live(c, d, x) {
+            sideNeedle(c, fuel, x.fuel);
+            sideNeedle(c, water, x.water);
+            // стрелка спидометра: от оси снизу, видна выше нижней полосы
+            const a = ang(x.spd), tip = onRay(a, 204), base = onRay(a, 440);
+            const n = [Math.cos(a * D.RAD), Math.sin(a * D.RAD)];
+            const q = (p, w) => [[p[0] + n[0] * w, p[1] + n[1] * w], [p[0] - n[0] * w, p[1] - n[1] * w]];
+            const tq = q(tip, 1.8), bq = q(base, 5);
+            c.quad([[tq[0][0] + 4, tq[0][1] + 6], [tq[1][0] + 4, tq[1][1] + 6], [bq[1][0] + 4, bq[1][1] + 6], [bq[0][0] + 4, bq[0][1] + 6]], [0, 0, 0, 120]);
+            c.quad([tq[0], tq[1], bq[1], bq[0]], num);
+            const rt = onRay(a, 204), rb = onRay(a, 238);
+            c.line(rt[0], rt[1], rb[0], rb[1], 3.5, red);
+            // нижняя полоса: обороты, одометр, вода цифрой
+            c.fillRect(110, 404, 1380, 64, '#030303');
+            c.fillRect(110, 404, 1380, 2, withAlpha(num, 0.55));
+            c.text(isNum(d.rpm) ? String(Math.round(d.rpm / 10) * 10) : '--', 470, 446, 30, num, { align: 'right', font: 'num', literal: true });
+            c.text('об/мин', 480, 446, 18, withAlpha(num, 0.65), { literal: true });
+            D.drum(c, 800 - 78, 424, 6, 26, 32, d.odo, { bg: '#151515', fg: '#f0f0f0', lastBg: '#eeeeee', lastFg: '#111', mask: '#030303', frame: '#3a3a3a', size: 26 });
+            c.text(isNum(d.coolant) ? String(Math.round(d.coolant)) : '--', 1130, 446, 30, num, { align: 'right', font: 'num', literal: true });
+            c.text('°C', 1140, 446, 18, withAlpha(num, 0.65), { literal: true });
+            // лампы и часы
+            c.text(hhmm(d.time), 800, 500, 26, '#4cff6a', { align: 'center', font: 'num', literal: true });
+            lamps.forEach((l, i) => {
+                const lx = i < 3 ? 250 + i * 118 : 930 + (i - 3) * 118;
+                D.lamp(c, lx - 52, 476, 104, 28, l[0], l[2] ? !!d[l[2]] : false, l[1], 13);
+            });
+        },
+    };
+})();
+
 /* =================================================================== УАЗ: железная панель, тросик спидометра */
 const UAZ = (() => {
     const faceC = '#0c0c0c', num = '#ededea';
@@ -377,5 +458,5 @@ const F30 = (() => {
     };
 })();
 
-const PANELS = [MOSK, ZHIG, UAZ, VOLGA, NINE, E39, F30];
+const PANELS = [MOSK, KOP, ZHIG, UAZ, VOLGA, NINE, E39, F30];
 module.exports = { PANELS, gearText, hhmm };
