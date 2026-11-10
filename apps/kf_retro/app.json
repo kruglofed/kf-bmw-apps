@@ -1,0 +1,52 @@
+{
+  "id": "kf_retro",
+  "title": "Ретро-приборы",
+  "description": "Приборные панели в духе старых машин: Москвич с ленточным спидометром, Жигули с дёрганым тахометром, УАЗ, Волга, Девятка, BMW E39 и F30. Настоящие скорость, обороты, температуры, топливо и одометр",
+  "version": "1.0.0",
+  "vendor": "custom",
+  "loggingId": "OAKT",
+  "signals": {
+    "de.bmw.infotainment.vehicle.CDS": {
+      "statusEngineSpeed2": "rs",
+      "statusEngineTemperature": "rs"
+    },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    },
+    "de.bmw.infotainment.KombiIF": {
+      "statusRangeTankStatus": "rs"
+    },
+    "de.bmw.infrastructure.VehicleInformation": {
+      "_optional": "передача на панелях BMW",
+      "statusGearboxDrive": "rs",
+      "DataPowerTrain2": "rs"
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "Ретро-приборы",
+      "buttons": [
+        ["BTN_NEXT", "Следующая панель"],
+        ["BTN_PREV", "Предыдущая панель"],
+        ["BTN_SETTINGS", "Settings"]
+      ]
+    }
+  ],
+  "settings": [
+    {"key": "panel", "label": "Панель", "type": "choice", "default": "zhiguli",
+     "options": [["moskvich", "Москвич"], ["zhiguli", "Жигули"], ["uaz", "УАЗ"], ["volga", "Волга"], ["nine", "Девятка"], ["e39", "BMW E39"], ["f30", "BMW F30"]]},
+    {"key": "jitter", "label": "Дрожание стрелок", "type": "choice", "default": "real",
+     "options": [["real", "Как в жизни"], ["strong", "Сильно"], ["off", "Выключено"]]},
+    {"key": "tz", "label": "Часовой пояс часов", "type": "number", "unit": "ч от UTC", "default": 3,
+     "steps": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]},
+    {"key": "tankSize", "label": "Объём бака", "type": "number", "unit": "л", "default": 80, "steps": [60, 65, 68, 70, 74, 78, 80, 83, 85, 90]},
+    {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",
+     "options": [["full", "Full screen"], ["standard", "Standard"]]},
+    {"key": "renderer", "label": "Renderer", "type": "choice", "default": "auto",
+     "options": [["auto", "GPU 60 fps (default)"], ["software", "Software"]]},
+    {"key": "demo", "label": "Demo data", "type": "choice", "default": "auto",
+     "options": [["auto", "Auto"], ["on", "Always"], ["off", "Never"]]}
+  ]
+}
