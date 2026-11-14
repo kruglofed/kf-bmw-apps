@@ -22,13 +22,13 @@ const PATHS = [
 
 // порядок задаёт приоритет: первое совпадение решает метку
 const TAGS = [
-    { tag: 'наружный звук', key: 'outside', re: /exterior.?(sound|speaker|audio|laut)|aussen.?(laut|klang|sound|schall)|external.?(sound|speaker)|outside.?(sound|speaker)|avas|pedestrian|fussgaenger|fussg|acousticvehicle|acoustic.?(warn|protect)|vsp(?![a-z])/i },
+    { tag: 'наружный звук', key: 'outside', re: /exterior.?(sound|speaker|audio|laut)|aussen.?(laut|klang|sound|schall)|external.?(sound|speaker)|outside.?(sound|speaker)|avas|vsg(?![a-z])|vehiclesoundgen|fussgaengerschutz|acousticvehicle|acoustic.?(warn|protect)|vsp(?![a-z])/i },
     { tag: 'звук мотора / ASD', key: 'asd', re: /activesound|(^|[^a-z])asd|asd(?![a-z])|enginesound|motorsound|motorklang|soundgenerat|soundsymposer|symposer|soundactuat|klangaktor|sounddesign|exhaustsound|auspuffklang|abgasklappe|exhaustflap|exhaustvalve|sportsound|sportklang|motorgeraeusch|enginenoise/i },
     { tag: 'режим езды', key: 'mode', re: /drivingexperience|fahrerlebnis|driveexperience|drivemode|drivingmode|fahrmodus|fahrprogramm|fesmode|(^|[^a-z])fes(?![a-z])|sportmode|comfortmode|sportplus|sportindividual|comfortindividual|modeselect|driveselect|drivelogic/i },
     { tag: 'аудио / усилитель', key: 'audio', re: /amplifier|verstaerker|receiveraudio|audiomodule|soundsetting|klangeinstell|audiosetting|tonesetting|equali[sz]er|surround|loudness|speaker|lautsprecher/i },
 ];
 // мусор: телефон, речь, навигационные подсказки, рингтоны
-const SKIP = /ringtone|phone|telefon|speech|voice|sprach|navi.?(prompt|announce)|announcement|beep|chime|gong|tts/i;
+const SKIP = /^PEDESTRIAN$|probabilitypedestrian|objectclass|crashseverity|ringtone|phone|telefon|speech|voice|sprach|navi.?(prompt|announce)|announcement|beep|chime|gong|tts/i;
 const IFACE = /^[a-z][a-z0-9]*(\.[a-z0-9_]+){2,}$/i;
 const ISBMW = /bmw|chassis|infotainment|powertrain|infrastructure|vehicle|harman|audio|sound|drivingexcitement/i;
 // признаки того, что поле можно записать или что это метод (команда)
@@ -51,6 +51,9 @@ function writable(node) {
     return false;
 }
 
+// интерфейсы распознавания объектов камерами/радарами - там «пешеход», а не звук
+const SKIP_IFACE = /\.dass|dasstypes|environmentalmodel|\.adas|objectlist/i;
+
 function scan(root) {
     const out = [], seen = Object.create(null);
     let budget = 4000000;
@@ -67,12 +70,12 @@ function scan(root) {
             const isIface = IFACE.test(k) && ISBMW.test(k);
             const nextIface = isIface ? k : iface;
             const v = node[k];
-            const t = tagOf(k);
+            const t = SKIP_IFACE.test(nextIface || '') ? null : tagOf(k);
             if (t) {
                 const w = isIface ? '' : METHOD_PARENT.test(parentKey || '') ? 'команда' : writable(v) ? 'запись' : '';
                 add(isIface ? k : nextIface, isIface ? '(весь интерфейс)' : k, t, w);
             }
-            if (typeof v === 'string') { const vt = tagOf(v); if (vt && v.length < 80) add(nextIface, v, vt, ''); }
+            if (typeof v === 'string') { const vt = SKIP_IFACE.test(nextIface || '') ? null : tagOf(v); if (vt && v.length < 80) add(nextIface, v, vt, ''); }
             else walk(v, nextIface, k);
         }
     }

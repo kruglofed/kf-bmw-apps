@@ -91,4 +91,27 @@ function drawList(cv, t, st, page) {
     return pages;
 }
 
-module.exports = { drawMain, drawList, verdict };
+function ctlPanel(cv, t, x, w, c, show) {
+    G.panel(cv, t, x, 44, w, 400, c.label);
+    const L = (txt, y, size, color, bold) => cv.text(txt, x + 24, y, size || 21, color || t.text, bold ? { font: 'bold' } : undefined);
+    cv.text(c.iface.split('.').slice(-1)[0] + ' . ' + c.field, x + 24, 106, 18, t.dim, { literal: true });
+    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 140, 20, t.warn);
+    L('Сейчас:', 150, 22, t.dim);
+    cv.text(c.value === undefined ? 'нет данных' : show(c.value, c.enums), x + w - 24, 150, 30, c.value === undefined ? t.dim : t.accent, { align: 'right', font: 'bold' });
+    L('Было при запуске: ' + (c.first === undefined ? '-' : show(c.first, c.enums)), 194, 20, t.dim);
+    const en = c.enums && c.enums.length ? c.enums.map((e) => e.value + ' ' + e.name).join(', ') : 'в каталоге не указаны';
+    L('Варианты: ' + (en.length > 62 ? en.slice(0, 62) + '…' : en), 228, 20, t.dim);
+    if (en.length > 62) L(en.slice(62, 124), 256, 20, t.dim);
+    L(c.msg || 'Нажмите кнопку «' + c.button + '» в меню снизу.', 300, 21, c.msgColor ? t[c.msgColor] : t.text);
+    if (c.raw) cv.text('Структура: ' + c.raw.slice(0, 66), x + 24, 340, 17, t.dim, { literal: true });
+}
+
+/** страница «Звук»: две настройки с записью и кнопки */
+function drawControl(cv, t, st, show) {
+    ctlPanel(cv, t, 24, 764, st.ctl.asd, show);
+    ctlPanel(cv, t, 812, 764, st.ctl.eng, show);
+    cv.text('Проба: нажмите кнопку, затем включите режим Комфорт и послушайте динамик снаружи.', 48, 474, 21, t.text);
+    cv.text('Что-то не так: «Вернуть как было». Пишется только настройка головного устройства, как из обычного меню.', 48, 504, 18, t.dim);
+}
+
+module.exports = { drawMain, drawList, drawControl, verdict };

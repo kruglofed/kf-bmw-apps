@@ -2,32 +2,34 @@
 /**
  * Уличный динамик - BMW G05 (iDrive 7, MGU).
  *
- * Наружный динамик активного звука (ASD) включает усилитель RAM, и только в режиме Спорт.
- * Цель - кнопка «включить в любом режиме». Версия 0.1 - разведка: ищет в каталоге SOME/IP
- * головного устройства (/etc/oap/someip/someip-interfaces.json) всё про наружный звук, ASD,
- * режим езды и усилитель, и отмечает, что из этого можно записать или вызвать командой.
- * По этому списку делается следующая версия с кнопкой.
+ * Наружный динамик активного звука (ASD) включает усилитель RAM, штатно только в режиме Спорт.
+ * В каталоге G05 нашлись две настройки головного устройства с записью:
+ *   VSGSwitch.personalizationASD                                  - включение ASD (персонализация)
+ *   EngineSoundConfiguration.operationIndividualizationEngineSound - звук мотора в Индивидуальном режиме
  *
  * Страницы:
- *   Динамик   итог поиска и что делать сейчас (Спорт Индивидуальный как обходной путь)
- *   Найдено   таблица: интерфейс, поле, что это, доступ (чтение / запись / команда)
+ *   Звук      обе настройки: текущее значение, варианты из каталога, кнопки «переключить» и «вернуть»
+ *   Итог      итог поиска по каталогу
+ *   Найдено   таблица найденного (интерфейс, поле, что это, доступ)
  *
- * Приложение только читает файл каталога: ни одного запроса в блоки управления, ничего не пишется в машину.
+ * Пишет только эти две настройки головного устройства (как обычное меню iDrive) и только по кнопке.
+ * Первое прочитанное значение запоминается: «Вернуть как было» записывает его обратно.
  */
 const fs = require('fs');
 const path = require('path');
 const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const { scan, summary, readCatalog, report } = require('./scan');
+const C = require('./ctl');
 const V = require('./view');
 
 const W = 1600, H = 520;
-const PAGES = ['Динамик', 'Найдено'];
+const PAGES = ['Звук', 'Итог', 'Найдено'];
 
 const DEMO_DB = { interfaces: {
-    'de.bmw.infotainment.drivingexcitement.FES': { fields: { statusDrivingExperience: { getter: true, notifier: true }, statusActualValueTorque2: {} } },
-    'de.bmw.infotainment.audio.SoundSettings': { fields: { activeSoundDesignMode: { getter: true, setter: true }, loudness: { setter: true } } },
-    'de.bmw.infotainment.vehicle.ExteriorSound': { fields: { statusExteriorSpeaker: { getter: true } } },
+    'de.bmw.infotainment.vehicle.VSGSwitch': { fields: { personalizationASD: { getter: true, setter: true } } },
+    'de.bmw.powertrain.enginesound.EngineSoundConfiguration': { fields: { operationIndividualizationEngineSound: { getter: true, setter: true } } },
+    'de.bmw.infotainment.drivingexcitement.FES': { fields: { statusDrivingExperience: { getter: true } } },
 } };
 
 mgu.run({
@@ -36,42 +38,112 @@ mgu.run({
         let page = 0, listPage = 0, listPages = 1;
         const demoOn = () => settings.get('demo') === 'on';
 
-        const st = { cat: null };
+        const st = {
+            cat: null,
+            ctl: {
+                asd: { label: 'Звук мотора (ASD): вкл / выкл', button: 'ASD: переключить', iface: 'de.bmw.infotainment.vehicle.VSGSwitch', field: 'personalizationASD' },
+                eng: { label: 'Звук мотора в режиме Индивидуальный', button: 'Звук мотора: следующий', iface: 'de.bmw.powertrain.enginesound.EngineSoundConfiguration', field: 'operationIndividualizationEngineSound' },
+            },
+        };
+        const CTL = [st.ctl.asd, st.ctl.eng];
+
+        /* ---------- каталог: поиск и описание двух настроек ---------- */
         function runScan() {
-            if (demoOn()) {
-                const found = scan(DEMO_DB);
-                st.cat = { path: 'демо', error: null, found, sum: summary(found) };
-                return;
+            let data = null, where = null, error = null;
+            if (demoOn()) { data = DEMO_DB; where = 'демо'; }
+            else {
+                try { const r = readCatalog(); data = r.data; where = r.path; error = r.error; } catch (e) { error = String(e); }
             }
-            try {
-                const r = readCatalog();
-                const found = r.data ? scan(r.data) : [];
-                st.cat = { path: r.path, error: r.error, found, sum: summary(found) };
-                log.info('street scan: ' + found.length + ' matches (' + (r.path || r.error) + ')');
-                found.forEach((m) => log.info('  ' + m.iface + ' . ' + m.field + '  [' + m.tag + ']' + (m.write ? ' ' + m.write : '')));
-                try { fs.writeFileSync(path.join(ctx.dataDir, 'street-scan.txt'), report(found, r.path || r.error)); } catch (e) { /* не страшно */ }
-            } catch (e) {
-                st.cat = { path: null, error: String(e), found: [], sum: summary([]) };
-                log.warn('street scan: ' + e);
+            const found = data ? scan(data) : [];
+            st.cat = { path: where, error, found, sum: summary(found) };
+            if (!demoOn()) {
+                log.info('street scan: ' + found.length + ' matches (' + (where || error) + ')');
+                try { fs.writeFileSync(path.join(ctx.dataDir, 'street-scan.txt'), report(found, where || error)); } catch (e) { /* не страшно */ }
+            }
+            if (data) {
+                const lines = [];
+                CTL.forEach((c) => {
+                    try { const d = C.describe(data, c.field); c.enums = d.enums; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
+                    catch (e) { log.warn('describe ' + c.field + ': ' + e); }
+                });
+                if (!demoOn()) try { fs.writeFileSync(path.join(ctx.dataDir, 'street-types.txt'), lines.join('\n\n')); } catch (e) { /* не страшно */ }
             }
         }
         setImmediate(runScan);
         let lastDemo = demoOn();
 
+        /* ---------- живые значения ---------- */
+        function got(c, v) {
+            c.value = v; c.at = Date.now();
+            if (c.first === undefined) { c.first = v; log.info('first ' + c.field + ' = ' + JSON.stringify(v)); }
+            try { c.raw = JSON.stringify(v); } catch (e) { c.raw = String(v); }
+        }
+        CTL.forEach((c) => {
+            ctx.signals.watch(c.iface, '1', { [c.field]: (v) => got(c, v) }, log, { pollMs: 3000 })
+                .then((s) => { c.sub = s; if (s && s.error) c.error = s.error; })
+                .catch((e) => { c.error = String(e); log.warn(c.iface + ': ' + e); });
+        });
+
+        async function reread(c) {
+            const p = c.sub && c.sub.proxy;
+            if (!p || !p.getValue) return;
+            try { got(c, await p.getValue(c.field, 3000)); } catch (e) { /* придёт подпиской */ }
+        }
+
+        async function write(c, v, what) {
+            const p = c.sub && c.sub.proxy;
+            if (!p) { c.msg = 'Нет связи с ' + c.iface.split('.').pop() + ', записать нельзя'; c.msgColor = 'warn'; return render(); }
+            c.msg = what + '…'; c.msgColor = null; render();
+            try {
+                await ctx.signals.set(p, c.field, v, 5000);
+                log.info('set ' + c.field + ' = ' + JSON.stringify(v) + ' ok');
+                c.msg = what + ': машина приняла'; c.msgColor = 'accent';
+            } catch (e) {
+                log.warn('set ' + c.field + ' = ' + JSON.stringify(v) + ': ' + e);
+                c.msg = 'Машина не приняла: ' + String(e).slice(0, 50); c.msgColor = 'warn';
+            }
+            setTimeout(() => reread(c).then(render), 600);
+            return render();
+        }
+
+        function step(c) {
+            if (demoOn()) { const l = C.leaf(c.value === undefined ? { value: 0 } : c.value); got(c, C.withLeaf(c.value === undefined ? { value: 0 } : c.value, l.path, C.next(l.value, c.enums))); c.msg = 'Демо: значение переключено'; return render(); }
+            if (c.value === undefined) { c.msg = 'Машина ещё не прислала значение, пробовать нечего'; c.msgColor = 'warn'; return render(); }
+            const l = C.leaf(c.value);
+            const nx = l ? C.next(l.value, c.enums) : undefined;
+            if (nx === undefined) { c.msg = 'Непонятный тип значения, пришлите фото экрана'; c.msgColor = 'warn'; return render(); }
+            return write(c, C.withLeaf(c.value, l.path, nx), C.show(c.value, c.enums) + ' на ' + String(nx));
+        }
+
+        async function restore() {
+            for (const c of CTL) {
+                if (c.first === undefined || JSON.stringify(c.first) === JSON.stringify(c.value)) { c.msg = 'Уже как было'; c.msgColor = null; continue; }
+                if (demoOn()) { got(c, c.first); c.msg = 'Демо: вернул'; continue; }
+                await write(c, c.first, 'Возвращаю ' + C.show(c.first, c.enums));
+            }
+            return render();
+        }
+
+        /* ---------- кадр ---------- */
         async function render() {
             if (demoOn() !== lastDemo) { lastDemo = demoOn(); runScan(); }
             const t = ctx.theme(), cv = ctx.canvas(W, H).clear(t.bg);
-            if (page === 0) V.drawMain(cv, t, st); else listPages = V.drawList(cv, t, st, listPage);
+            if (page === 0) V.drawControl(cv, t, st, C.show);
+            else if (page === 1) V.drawMain(cv, t, st);
+            else listPages = V.drawList(cv, t, st, listPage);
             G.frame(cv, t, PAGES, page, [demoOn() && { text: 'DEMO' }]);
             await ui.image('MAIN_GFX', cv);
         }
 
         const go = (i) => { page = (i + PAGES.length) % PAGES.length; return render(); };
+        ui.onClick('BTN_ASD', () => { page = 0; return step(st.ctl.asd); });
+        ui.onClick('BTN_ENG', () => { page = 0; return step(st.ctl.eng); });
+        ui.onClick('BTN_RESTORE', () => { page = 0; return restore(); });
         ui.onClick('BTN_PAGE', () => {
-            if (page === 1 && listPage + 1 < listPages) { listPage++; return render(); }
+            if (page === 2 && listPage + 1 < listPages) { listPage++; return render(); }
             listPage = 0; return go(page + 1);
         });
-        ui.onClick('BTN_PREV', () => { if (page === 1 && listPage > 0) { listPage--; return render(); } return go(page - 1); });
+        ui.onClick('BTN_PREV', () => { if (page === 2 && listPage > 0) { listPage--; return render(); } return go(page - 1); });
         ctx.onTab((i) => { listPage = 0; return go(i); });
         ctx.loop('MAIN', 2, render);
         render().then(() => log.info('street: first frame')).catch((e) => log.warn('first render: ' + e));

@@ -1,31 +1,125 @@
 {
   "id": "kf_sound",
   "title": "Уличный динамик",
-  "description": "Наружный динамик активного звука: поиск управления в головном устройстве (наружный звук, ASD, режим езды) и обходной путь через Спорт Индивидуальный",
-  "version": "0.1.0",
+  "description": "Наружный динамик и звук мотора: включение ASD и звук мотора в Индивидуальном режиме с экрана, поиск настроек звука в головном устройстве",
+  "version": "0.2.0",
   "vendor": "custom",
   "loggingId": "OAKS",
-  "signals": {},
+  "signals": {
+    "de.bmw.infotainment.vehicle.VSGSwitch": {
+      "_optional": "переключатель ASD",
+      "personalizationASD": "rsw"
+    },
+    "de.bmw.powertrain.enginesound.EngineSoundConfiguration": {
+      "_optional": "звук мотора в Индивидуальном режиме",
+      "operationIndividualizationEngineSound": "rsw"
+    }
+  },
   "screens": [
     {
       "name": "MAIN",
       "kind": "canvas",
       "title": "Уличный динамик",
       "buttons": [
-        ["BTN_PAGE", "Next page"],
-        ["BTN_PREV", "Previous page"],
-        ["BTN_SETTINGS", "Settings"]
+        [
+          "BTN_ASD",
+          "ASD: переключить"
+        ],
+        [
+          "BTN_ENG",
+          "Звук мотора: следующий"
+        ],
+        [
+          "BTN_RESTORE",
+          "Вернуть как было"
+        ],
+        [
+          "BTN_PAGE",
+          "Next page"
+        ],
+        [
+          "BTN_PREV",
+          "Previous page"
+        ],
+        [
+          "BTN_SETTINGS",
+          "Settings"
+        ]
       ]
     }
   ],
   "settings": [
-    {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
-     "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
-    {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",
-     "options": [["full", "Full screen"], ["standard", "Standard"]]},
-    {"key": "renderer", "label": "Renderer", "type": "choice", "default": "auto",
-     "options": [["auto", "GPU 60 fps (default)"], ["software", "Software"]]},
-    {"key": "demo", "label": "Demo data", "type": "choice", "default": "off",
-     "options": [["off", "Never"], ["on", "Always"]]}
+    {
+      "key": "theme",
+      "label": "Colour theme",
+      "type": "choice",
+      "default": "m_tricolour",
+      "options": [
+        [
+          "m_red",
+          "M Red"
+        ],
+        [
+          "m_tricolour",
+          "M Tricolour"
+        ],
+        [
+          "ice",
+          "Ice White"
+        ],
+        [
+          "amber",
+          "Night Amber"
+        ]
+      ]
+    },
+    {
+      "key": "layout",
+      "label": "Screen layout",
+      "type": "choice",
+      "default": "full",
+      "options": [
+        [
+          "full",
+          "Full screen"
+        ],
+        [
+          "standard",
+          "Standard"
+        ]
+      ]
+    },
+    {
+      "key": "renderer",
+      "label": "Renderer",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "GPU 60 fps (default)"
+        ],
+        [
+          "software",
+          "Software"
+        ]
+      ]
+    },
+    {
+      "key": "demo",
+      "label": "Demo data",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Never"
+        ],
+        [
+          "on",
+          "Always"
+        ]
+      ]
+    }
   ]
 }
