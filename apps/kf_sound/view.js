@@ -104,6 +104,10 @@ function ctlPanel(cv, t, x, w, c, show) {
     if (en.length > 62) L(en.slice(62, 124), 256, 20, t.dim);
     L(c.msg || 'Нажмите кнопку «' + c.button + '» в меню снизу.', 300, 21, c.msgColor ? t[c.msgColor] : t.text);
     if (c.raw) cv.text('Структура: ' + c.raw.slice(0, 66), x + 24, 340, 17, t.dim, { literal: true });
+    else if (c.where) {
+        const s = 'В каталоге: ' + c.where;
+        for (let i = 0; i < 3; i++) cv.text(s.slice(i * 78, (i + 1) * 78), x + 24, 334 + i * 22, 16, t.dim, { literal: true });
+    }
 }
 
 /** страница «Звук»: две настройки с записью и кнопки */

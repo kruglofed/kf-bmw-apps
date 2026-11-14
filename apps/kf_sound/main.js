@@ -25,6 +25,8 @@ const V = require('./view');
 
 const W = 1600, H = 520;
 const PAGES = ['Звук', 'Итог', 'Найдено'];
+// true - только вместе с интерфейсами в app.json "signals" (с ними 0.2.0/0.2.1 не ставились)
+const CONNECT = false;
 
 const DEMO_DB = { interfaces: {
     'de.bmw.infotainment.vehicle.VSGSwitch': { fields: { personalizationASD: { getter: true, setter: true } } },
@@ -63,7 +65,7 @@ mgu.run({
             if (data) {
                 const lines = [];
                 CTL.forEach((c) => {
-                    try { const d = C.describe(data, c.field); c.enums = d.enums; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
+                    try { const d = C.describe(data, c.field); c.enums = d.enums; c.where = (d.paths || []).join(' | ') || 'не найдено'; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
                     catch (e) { log.warn('describe ' + c.field + ': ' + e); }
                 });
                 if (!demoOn()) try { fs.writeFileSync(path.join(ctx.dataDir, 'street-types.txt'), lines.join('\n\n')); } catch (e) { /* не страшно */ }
@@ -78,7 +80,10 @@ mgu.run({
             if (c.first === undefined) { c.first = v; log.info('first ' + c.field + ' = ' + JSON.stringify(v)); }
             try { c.raw = JSON.stringify(v); } catch (e) { c.raw = String(v); }
         }
+        // 0.2.0/0.2.1 с этими интерфейсами в app.json не ставились (generateSomeipInterfaces): пока
+        // они не объявлены, связи нет - страница показывает, где поля лежат в каталоге
         CTL.forEach((c) => {
+            if (!CONNECT) { c.error = 'не подключено в этой версии'; return; }
             ctx.signals.watch(c.iface, '1', { [c.field]: (v) => got(c, v) }, log, { pollMs: 3000 })
                 .then((s) => { c.sub = s; if (s && s.error) c.error = s.error; })
                 .catch((e) => { c.error = String(e); log.warn(c.iface + ': ' + e); });

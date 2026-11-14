@@ -60,17 +60,17 @@ function enumsIn(node, out) {
 
 /** ищет в каталоге описание поля и типов, на которые оно ссылается */
 function describe(db, field) {
-    const hits = [], names = new Set();
+    const hits = [], paths = [], names = new Set();
     let budget = 3000000;
-    (function walk(n) {
+    (function walk(n, trail) {
         if (budget-- <= 0 || !n || typeof n !== 'object') return;
-        if (Array.isArray(n)) { n.forEach(walk); return; }
+        if (Array.isArray(n)) { n.forEach((x, i) => walk(x, trail.concat('[' + i + ']'))); return; }
+        if (n.name === field) { hits.push(n); paths.push(trail.join(' > ')); }
         for (const k of Object.keys(n)) {
-            if (k === field || (n[k] && n[k].name === field)) hits.push(k === field ? n[k] : n[k]);
-            walk(n[k]);
+            if (k === field) { hits.push(n[k]); paths.push(trail.concat(k).join(' > ')); }
+            walk(n[k], trail.concat(k));
         }
-        if (n.name === field) hits.push(n);
-    })(db);
+    })(db, []);
     // имена типов, на которые ссылается поле
     const refs = (o) => { if (!o || typeof o !== 'object') return; for (const k of Object.keys(o)) { const v = o[k]; if (typeof v === 'string' && /type|ref|datatype/i.test(k) && v.length < 120) names.add(v.split(/[.:/]/).pop()); else refs(v); } };
     hits.forEach(refs);
@@ -91,8 +91,8 @@ function describe(db, field) {
     const seen = new Set();
     hits.concat(types).forEach((h) => enumsIn(h, []).forEach((e) => { const key = e.name + '=' + e.value; if (!seen.has(key)) { seen.add(key); enums.push(e); } }));
     enums.sort((a, b) => a.value - b.value);
-    const text = JSON.stringify({ field: hits.slice(0, 2), types: types.slice(0, 3) });
-    return { found: hits.length > 0, enums, text: text.length > 1500 ? text.slice(0, 1500) + '…' : text };
+    const text = JSON.stringify({ where: paths.slice(0, 3), field: hits.slice(0, 2), types: types.slice(0, 3) });
+    return { found: hits.length > 0, paths, enums, text: text.length > 1500 ? text.slice(0, 1500) + '…' : text };
 }
 
 function next(x, enums) {
