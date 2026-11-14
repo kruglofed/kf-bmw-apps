@@ -60,3 +60,13 @@ const noisy = scan({ 'de.bmw.dass.pad.Comm': { ObjectClassPedestrian: {} }, 'de.
     'de.bmw.infotainment.vehicle.VSGSwitch': { fields: { personalizationASD: { setter: true } } } });
 assert.strictEqual(noisy.length >= 1 && noisy.every((m) => !/dass|environmentalmodel/.test(m.iface)), true);
 console.log('kf_sound ctl: ok');
+
+/* --- probe.js --- */
+const P = require('../apps/kf_sound/probe');
+const pdb = { interfaces: { 'a.b.X': { fields: { f: {} }, instances: ['Front', 'Rear'], version: '1.0' } } };
+assert.deepStrictEqual(P.info(pdb, 'a.b.X').instances, ['Front', 'Rear']);
+assert.ok(/version/.test(P.info(pdb, 'a.b.X').extra));
+assert.strictEqual(P.info(pdb, 'nope').extra, 'интерфейса нет в каталоге');
+const pr = P.probe(pdb, 'a.b.X', 'f', ['1']);
+assert.ok(!pr[0].ok && /генератор/.test(pr[0].msg), 'без прошивки - понятная ошибка, не исключение');
+console.log('kf_sound probe: ok');

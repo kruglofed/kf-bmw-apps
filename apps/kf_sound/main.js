@@ -21,6 +21,7 @@ const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const { scan, summary, readCatalog, report } = require('./scan');
 const C = require('./ctl');
+const P = require('./probe');
 const V = require('./view');
 
 const W = 1600, H = 520;
@@ -68,7 +69,22 @@ mgu.run({
                     try { const d = C.describe(data, c.field); c.enums = d.enums; c.where = (d.paths || []).join(' | ') || 'не найдено'; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
                     catch (e) { log.warn('describe ' + c.field + ': ' + e); }
                 });
-                if (!demoOn()) try { fs.writeFileSync(path.join(ctx.dataDir, 'street-types.txt'), lines.join('\n\n')); } catch (e) { /* не страшно */ }
+                if (!demoOn()) {
+                    // почему установщик не подключает эти интерфейсы: тот же генератор, что у MainApp
+                    try {
+                        const chk = P.probe(data, 'de.bmw.infotainment.vehicle.CDS', 'statusEngineSpeed2', ['1'])[0];
+                        st.ctl.check = chk.ok ? 'ок' : 'ошибка: ' + chk.msg;
+                        lines.push('check CDS: ' + JSON.stringify(chk));
+                        CTL.forEach((c) => {
+                            c.inst = P.info(data, c.iface);
+                            const inst = ['1', '*'].concat(c.inst.instances).filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
+                            c.probe = P.probe(data, c.iface, c.field, inst);
+                            lines.push(c.iface + ' info: ' + JSON.stringify(c.inst) + '\nprobe: ' + JSON.stringify(c.probe));
+                            log.info('probe ' + c.iface + ': ' + JSON.stringify(c.probe));
+                        });
+                    } catch (e) { st.ctl.check = 'ошибка: ' + e; log.warn('probe: ' + e); }
+                    try { fs.writeFileSync(path.join(ctx.dataDir, 'street-types.txt'), lines.join('\n\n')); } catch (e) { /* не страшно */ }
+                }
             }
         }
         setImmediate(runScan);

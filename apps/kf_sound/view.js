@@ -95,7 +95,7 @@ function ctlPanel(cv, t, x, w, c, show) {
     G.panel(cv, t, x, 44, w, 400, c.label);
     const L = (txt, y, size, color, bold) => cv.text(txt, x + 24, y, size || 21, color || t.text, bold ? { font: 'bold' } : undefined);
     cv.text(c.iface.split('.').slice(-1)[0] + ' . ' + c.field, x + 24, 106, 18, t.dim, { literal: true });
-    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 140, 20, t.warn);
+    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 262, 20, t.warn);
     L('Сейчас:', 150, 22, t.dim);
     cv.text(c.value === undefined ? 'нет данных' : show(c.value, c.enums), x + w - 24, 150, 30, c.value === undefined ? t.dim : t.accent, { align: 'right', font: 'bold' });
     L('Было при запуске: ' + (c.first === undefined ? '-' : show(c.first, c.enums)), 194, 20, t.dim);
@@ -103,18 +103,22 @@ function ctlPanel(cv, t, x, w, c, show) {
     L('Варианты: ' + (en.length > 62 ? en.slice(0, 62) + '…' : en), 228, 20, t.dim);
     if (en.length > 62) L(en.slice(62, 124), 256, 20, t.dim);
     L(c.msg || 'Нажмите кнопку «' + c.button + '» в меню снизу.', 300, 21, c.msgColor ? t[c.msgColor] : t.text);
-    if (c.raw) cv.text('Структура: ' + c.raw.slice(0, 66), x + 24, 340, 17, t.dim, { literal: true });
-    else if (c.where) {
-        const s = 'В каталоге: ' + c.where;
-        for (let i = 0; i < 3; i++) cv.text(s.slice(i * 78, (i + 1) * 78), x + 24, 334 + i * 22, 16, t.dim, { literal: true });
-    }
+    const lines = [];
+    if (c.raw) lines.push('Структура: ' + c.raw);
+    if (c.inst) lines.push('Экземпляры в каталоге: ' + (c.inst.instances.length ? c.inst.instances.join(', ') : 'не указаны') + ' · ' + c.inst.extra);
+    (c.probe || []).forEach((r) => lines.push('Установщик, экз. "' + r.inst + '": ' + r.msg));
+    if (!lines.length && c.where) lines.push('В каталоге: ' + c.where);
+    const out = [];
+    lines.forEach((l) => { for (let i = 0; i < l.length && out.length < 6; i += 82) out.push(l.slice(i, i + 82)); });
+    out.slice(0, 6).forEach((l, i) => cv.text(l, x + 24, 328 + i * 19, 15, t.dim, { literal: true }));
 }
 
 /** страница «Звук»: две настройки с записью и кнопки */
 function drawControl(cv, t, st, show) {
     ctlPanel(cv, t, 24, 764, st.ctl.asd, show);
     ctlPanel(cv, t, 812, 764, st.ctl.eng, show);
-    cv.text('Проба: нажмите кнопку, затем включите режим Комфорт и послушайте динамик снаружи.', 48, 474, 21, t.text);
+    const ctl = st.ctl.check ? 'Проверка установщика на обычном сигнале (обороты): ' + st.ctl.check : 'Проверяю установщик…';
+    cv.text(ctl, 48, 474, 20, /ок/.test(ctl) ? t.text : t.warn, { literal: true });
     cv.text('Что-то не так: «Вернуть как было». Пишется только настройка головного устройства, как из обычного меню.', 48, 504, 18, t.dim);
 }
 
