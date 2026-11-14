@@ -66,7 +66,7 @@ mgu.run({
             if (data) {
                 const lines = [];
                 CTL.forEach((c) => {
-                    try { const d = C.describe(data, c.field); c.enums = d.enums; c.where = (d.paths || []).join(' | ') || 'не найдено'; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
+                    try { const d = C.describe(data, c.field); c.enums = d.enums; c.where = (d.paths || []).join(' | ') || 'не найдено'; c.typesText = d.typesText; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
                     catch (e) { log.warn('describe ' + c.field + ': ' + e); }
                 });
                 if (!demoOn()) {
@@ -77,8 +77,10 @@ mgu.run({
                         lines.push('check CDS: ' + JSON.stringify(chk));
                         CTL.forEach((c) => {
                             c.inst = P.info(data, c.iface);
-                            const inst = ['1', '*'].concat(c.inst.instances).filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
-                            c.probe = P.probe(data, c.iface, c.field, inst);
+                                                        // 0.2.3: «Requested read … but no getter available» - поле только на запись.
+                            // Проверяем запись (w) и подписку (s) по отдельности на экземплярах 1 и *
+                            c.probe = P.probe(data, c.iface, c.field, ['1', '*'], 'w').concat(P.probe(data, c.iface, c.field, ['1'], 's'));
+                            c.def = C.fieldDef(data, c.iface, c.field);
                             lines.push(c.iface + ' info: ' + JSON.stringify(c.inst) + '\nprobe: ' + JSON.stringify(c.probe));
                             log.info('probe ' + c.iface + ': ' + JSON.stringify(c.probe));
                         });

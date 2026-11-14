@@ -92,7 +92,8 @@ function describe(db, field) {
     hits.concat(types).forEach((h) => enumsIn(h, []).forEach((e) => { const key = e.name + '=' + e.value; if (!seen.has(key)) { seen.add(key); enums.push(e); } }));
     enums.sort((a, b) => a.value - b.value);
     const text = JSON.stringify({ where: paths.slice(0, 3), field: hits.slice(0, 2), types: types.slice(0, 3) });
-    return { found: hits.length > 0, paths, enums, text: text.length > 1500 ? text.slice(0, 1500) + '…' : text };
+    const tt = JSON.stringify(types.slice(0, 3));
+    return { typesText: tt.length > 400 ? tt.slice(0, 400) + '…' : tt, found: hits.length > 0, paths, enums, text: text.length > 1500 ? text.slice(0, 1500) + '…' : text };
 }
 
 function next(x, enums) {
@@ -117,4 +118,13 @@ function show(v, enums) {
     return String(l.value) + (e && e.name !== l.value ? ' (' + e.name + ')' : '');
 }
 
-module.exports = { leaf, withLeaf, describe, enumsIn, next, show };
+/** описание поля в каталоге (interfaces > iface > fields > field) одной строкой */
+function fieldDef(db, iface, field) {
+    const n = db && (db.interfaces && db.interfaces[iface] || db[iface]);
+    const f = n && n.fields && n.fields[field];
+    if (f === undefined) return 'нет в каталоге';
+    let s; try { s = JSON.stringify(f); } catch (e) { s = String(e); }
+    return s.length > 420 ? s.slice(0, 420) + '…' : s;
+}
+
+module.exports = { fieldDef, leaf, withLeaf, describe, enumsIn, next, show };

@@ -95,22 +95,19 @@ function ctlPanel(cv, t, x, w, c, show) {
     G.panel(cv, t, x, 44, w, 400, c.label);
     const L = (txt, y, size, color, bold) => cv.text(txt, x + 24, y, size || 21, color || t.text, bold ? { font: 'bold' } : undefined);
     cv.text(c.iface.split('.').slice(-1)[0] + ' . ' + c.field, x + 24, 106, 18, t.dim, { literal: true });
-    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 262, 20, t.warn);
+    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 190, 20, t.warn);
     L('Сейчас:', 150, 22, t.dim);
     cv.text(c.value === undefined ? 'нет данных' : show(c.value, c.enums), x + w - 24, 150, 30, c.value === undefined ? t.dim : t.accent, { align: 'right', font: 'bold' });
-    L('Было при запуске: ' + (c.first === undefined ? '-' : show(c.first, c.enums)), 194, 20, t.dim);
-    const en = c.enums && c.enums.length ? c.enums.map((e) => e.value + ' ' + e.name).join(', ') : 'в каталоге не указаны';
-    L('Варианты: ' + (en.length > 62 ? en.slice(0, 62) + '…' : en), 228, 20, t.dim);
-    if (en.length > 62) L(en.slice(62, 124), 256, 20, t.dim);
-    L(c.msg || 'Нажмите кнопку «' + c.button + '» в меню снизу.', 300, 21, c.msgColor ? t[c.msgColor] : t.text);
+    L(c.msg || 'Нажмите кнопку «' + c.button + '» в меню снизу.', 222, 20, c.msgColor ? t[c.msgColor] : t.text);
     const lines = [];
     if (c.raw) lines.push('Структура: ' + c.raw);
-    if (c.inst) lines.push('Экземпляры в каталоге: ' + (c.inst.instances.length ? c.inst.instances.join(', ') : 'не указаны') + ' · ' + c.inst.extra);
-    (c.probe || []).forEach((r) => lines.push('Установщик, экз. "' + r.inst + '": ' + r.msg));
+    if (c.def) lines.push('Поле: ' + c.def);
+    if (c.typesText && c.typesText !== '[]') lines.push('Тип: ' + c.typesText);
+    (c.probe || []).forEach((r) => lines.push('Установщик ' + r.flags + ', экз. "' + r.inst + '": ' + r.msg.replace('IFConfigGenerator::generate() Failed due to Error: ', '')));
     if (!lines.length && c.where) lines.push('В каталоге: ' + c.where);
     const out = [];
-    lines.forEach((l) => { for (let i = 0; i < l.length && out.length < 6; i += 82) out.push(l.slice(i, i + 82)); });
-    out.slice(0, 6).forEach((l, i) => cv.text(l, x + 24, 328 + i * 19, 15, t.dim, { literal: true }));
+    lines.forEach((l) => { for (let i = 0; i < l.length && out.length < 10; i += 88) out.push(l.slice(i, i + 88)); });
+    out.slice(0, 10).forEach((l, i) => cv.text(l, x + 24, 250 + i * 18, 14, t.dim, { literal: true }));
 }
 
 /** страница «Звук»: две настройки с записью и кнопки */

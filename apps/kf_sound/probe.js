@@ -56,16 +56,16 @@ function info(db, iface) {
     return { keys, instances: Array.from(new Set(instances)), extra: extra.length > 300 ? extra.slice(0, 300) + '…' : extra };
 }
 
-function probe(db, iface, field, instances) {
+function probe(db, iface, field, instances, flags) {
     let g;
     try { g = loadGen(); } catch (e) { return [{ inst: '-', ok: false, msg: 'генератор: ' + (e && e.message || e) }]; }
     return instances.map((inst) => {
         try {
-            const manifest = { proxies: { [iface]: { instances: inst, attributes: { [field]: 'r' } } }, services: {} };
+            const manifest = { proxies: { [iface]: { instances: inst, attributes: { [field]: flags || 'r' } } }, services: {} };
             const out = g.generate(db, manifest);
-            return { inst, ok: true, msg: 'ок, ' + Object.keys(out || {}).length + ' конфиг.' };
+            return { inst, flags: flags || 'r', ok: true, msg: 'ок, ' + Object.keys(out || {}).length + ' конфиг.' };
         } catch (e) {
-            return { inst, ok: false, msg: String(e && e.message || e).replace(/\s+/g, ' ').slice(0, 140) };
+            return { inst, flags: flags || 'r', ok: false, msg: String(e && e.message || e).replace(/\s+/g, ' ').slice(0, 140) };
         }
     });
 }
