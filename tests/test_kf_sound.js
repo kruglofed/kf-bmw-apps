@@ -81,6 +81,17 @@ assert.strictEqual(rt.kind, 'struct');
 assert.strictEqual(rt.members[0].name, 'personalisationRequestASD');
 assert.deepStrictEqual(rt.members[0].enums.map((e) => e.value), [0, 1, 15]);
 assert.deepStrictEqual(C.options(rt).map((e) => e.name), ['OFF', 'ON'], 'без «нет запроса» (по умолчанию 15)');
-assert.deepStrictEqual(C.buildValue(rt, 1), { personalisationRequestASD: 1 });
+assert.deepStrictEqual(C.buildValue(rt, { name: 'ON', value: 1 }), { personalisationRequestASD: 'ON' }, 'enum - строкой');
+assert.deepStrictEqual(C.buildValue(rt, { name: 'ON', value: 1 }, true), { personalisationRequestASD: 1 });
+// как в машине (фото 0.3.0)
+const asd = { members: [{ name: 'personalisationRequestASD', def: 15, enums: [[0, 'ASD_DEAKTIVIERT'], [1, 'GRUNDSOUND_1'], [2, 'GRUNDSOUND_2'], [3, 'GRUNDSOUND_3'], [4, 'GRUNDSOUND_4'], [14, 'KEINE_AENDERUNG'], [15, 'SIGNAL_UNGUELTIG']].map(([value, name]) => ({ name, value })) }], enums: [] };
+assert.deepStrictEqual(C.options(asd).map((e) => e.value), [0, 1, 2, 3, 4]);
+assert.strictEqual(C.neutral(asd).name, 'KEINE_AENDERUNG');
+assert.strictEqual(C.ru('GRUNDSOUND_3'), 'звук 3');
+assert.strictEqual(C.ru('AUSGEWOGEN'), 'сбалансированный');
+const eng = { members: ['operationAdjustProminenceEngineSoundVehicleStartup', 'operationAdjustProminenceEngineSoundVehicle'].map((name) => ({ name, def: 15,
+    enums: [[0, 'SILENT'], [1, 'MINIMAL'], [2, 'AUSGEWOGEN'], [3, 'PROMINENT'], [4, 'SEHR_PROMINENT'], [5, 'MAXIMAL'], [6, 'KEINE_AENDERUNG'], [13, 'RESERVIERT_NICHT_VERFUEGBAR'], [14, 'RESERVIERT_MELDET_FEHLER'], [15, 'SIGNAL_UNBEFUELLT']].map(([value, n]) => ({ name: n, value })) })), enums: [] };
+assert.deepStrictEqual(C.options(eng).map((e) => e.value), [0, 1, 2, 3, 4, 5]);
+assert.deepStrictEqual(C.buildValue(eng, { name: 'MAXIMAL', value: 5 }), { operationAdjustProminenceEngineSoundVehicleStartup: 'MAXIMAL', operationAdjustProminenceEngineSoundVehicle: 'MAXIMAL' });
 assert.strictEqual(C.resolveType(tdb, 'x.Nope').kind, 'нет в каталоге');
 console.log('kf_sound types: ok');

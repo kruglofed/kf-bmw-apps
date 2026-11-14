@@ -9,6 +9,7 @@
  */
 const G = require('./kit/gauges');
 const { withAlpha } = require('./kit/canvas');
+const { ru } = require('./ctl');
 
 function verdict(st) {
     const c = st.cat;
@@ -97,14 +98,16 @@ function ctlPanel(cv, t, x, w, c) {
     const lit = (txt, y, size, color) => cv.text(txt, x + 24, y, size, color || t.dim, { literal: true });
     lit(c.iface.split('.').slice(-1)[0] + ' . ' + c.field, 106, 18);
     L('Записано:', 150, 22, t.dim);
-    const wr = c.written ? c.written.name + ' (' + c.written.value + ')' : 'ничего';
+    const wr = c.written ? ru(c.written.name) : 'ничего';
     cv.text(wr, x + w - 24, 150, 30, c.written ? t.accent : t.dim, { align: 'right', font: 'bold', literal: true });
     const opts = c.opts || [];
-    const ol = opts.length ? opts.map((o) => o.value + ' ' + o.name).join(', ') : (c.rt ? 'не найдены' : 'читаю каталог…');
+    const ol = opts.length ? opts.map((o) => ru(o.name)).join(', ') : (c.rt ? 'не найдены' : 'читаю каталог…');
     L('Варианты:', 194, 20, t.dim);
     cv.text(ol.length > 62 ? ol.slice(0, 62) + '…' : ol, x + 150, 194, 19, t.text, { literal: true });
-    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 232, 20, t.warn);
-    L(c.msg || 'Нажмите «' + c.button + '» в меню снизу.', 268, 20, c.msgColor ? t[c.msgColor] : t.text);
+    if (c.error) lit('Нет связи: ' + String(c.error).slice(0, 70), 232, 19, t.warn);
+    else if (c.avail !== undefined) L(c.avail ? 'Сервис в машине: на связи' : 'Сервис в машине: не отвечает', 232, 19, c.avail ? t.dim : t.warn);
+    const msg = c.msg || 'Нажмите «' + c.button + '» в меню снизу.';
+    lit(msg.length > 76 ? msg.slice(0, 76) + '…' : msg, 268, 20, c.msgColor ? t[c.msgColor] : t.text);
     const lines = [];
     if (c.rt) lines.push('Тип ' + c.rt.name + ' (' + c.rt.kind + '): ' + (c.rt.members.map((m) => m.name + (m.def !== undefined ? '=' + m.def : '') + (m.enums.length ? '[' + m.enums.map((e) => e.value + ' ' + e.name).join(', ') + ']' : '')).join('; ') || c.rt.raw));
     if (!opts.length && c.def) lines.push('Поле: ' + c.def);

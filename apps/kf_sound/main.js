@@ -98,7 +98,10 @@ mgu.run({
         // proxy строится после разбора каталога: нужен тип значения
         async function connect(c) {
             if (demoOn()) return;
-            try { c.p = await ctx.signals.proxy(c.iface, '1'); c.error = null; log.info('proxy ' + c.iface + ' ok'); }
+            try {
+                c.p = await ctx.signals.proxy(c.iface, '1'); c.error = null; log.info('proxy ' + c.iface + ' ok');
+                ctx.signals.onAvailable(c.p, (a) => { c.avail = a; log.info('available ' + c.iface + ': ' + a); render(); }).catch(() => {});
+            }
             catch (e) { c.error = String(e); log.warn('proxy ' + c.iface + ': ' + e); }
             render();
         }
@@ -108,7 +111,13 @@ mgu.run({
             if (!c.p) { c.msg = 'Нет связи с ' + c.iface.split('.').pop() + (c.error ? ': ' + String(c.error).slice(0, 40) : ''); c.msgColor = 'warn'; return render(); }
             c.msg = what + '…'; c.msgColor = null; render();
             try {
-                await ctx.signals.set(c.p, c.field, v, 5000);
+                try { await ctx.signals.set(c.p, c.field, v, 5000); }
+                catch (e) {
+                    // на случай, если привязка всё же хочет число
+                    if (!/not a number/i.test(String(e)) || !c.lastOpt) throw e;
+                    v = C.buildValue(c.rt, c.lastOpt, true);
+                    await ctx.signals.set(c.p, c.field, v, 5000);
+                }
                 log.info('set ' + c.field + ' = ' + JSON.stringify(v) + ' ok');
                 c.msg = what + ': машина приняла'; c.msgColor = 'accent';
             } catch (e) {
@@ -123,17 +132,17 @@ mgu.run({
             if (!opts.length) { c.msg = 'Варианты значений не найдены в каталоге, пришлите фото экрана'; c.msgColor = 'warn'; return render(); }
             c.idx = ((c.idx === undefined ? -1 : c.idx) + 1) % opts.length;
             const o = opts[c.idx];
-            c.written = o;
-            return write(c, C.buildValue(c.rt, o.value), 'Записываю ' + o.name + ' (' + o.value + ')');
+            c.written = o; c.lastOpt = o;
+            return write(c, C.buildValue(c.rt, o), 'Записываю «' + C.ru(o.name) + '» (' + o.name + ')');
         }
 
         async function reset() {
             for (const c of CTL) {
                 if (!c.rt) continue;
-                const d = c.rt.members.length ? c.rt.members[0].def : undefined;
-                if (d === undefined) { c.msg = 'Нет значения «по умолчанию» в каталоге'; continue; }
-                c.written = { name: 'по умолчанию', value: d }; c.idx = -1;
-                await write(c, C.buildValue(c.rt, d), 'Сброс (' + d + ')');
+                const n = C.neutral(c.rt);
+                if (!n) { c.msg = 'Нет значения «без изменений» в каталоге'; continue; }
+                c.written = n; c.lastOpt = n; c.idx = -1;
+                await write(c, C.buildValue(c.rt, n), 'Сброс: ' + n.name);
             }
             return render();
         }

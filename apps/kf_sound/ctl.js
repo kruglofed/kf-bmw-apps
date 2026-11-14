@@ -158,18 +158,47 @@ function resolveType(db, ref) {
     return { name: t.name || String(ref).split('.').pop(), kind: t.type || (members.length ? 'struct' : 'enum'), members, enums: enumsIn(t), raw };
 }
 
-/** значение для записи: всем членам struct - v (если у члена есть такой вариант), остальным - по умолчанию */
-function buildValue(rt, v) {
-    if (!rt.members.length) return v;
+/**
+ * Значение для записи: всем членам struct - вариант opt (если у члена он есть), остальным - их
+ * значение по умолчанию. Перечисления привязка SOME/IP принимает строкой-именем («Not a string»
+ * на числе в 0.3.0), поэтому по умолчанию пишется имя варианта.
+ */
+function buildValue(rt, opt, asNumber) {
+    const enc = (e) => (asNumber ? e.value : e.name);
+    if (!rt.members.length) return enc(opt);
     const out = {};
-    rt.members.forEach((m) => { out[m.name] = (!m.enums.length || m.enums.some((e) => e.value === v)) ? v : (m.def !== undefined ? m.def : v); });
+    rt.members.forEach((m) => {
+        const own = m.enums.find((e) => e.value === opt.value || e.name === opt.name);
+        const def = m.enums.find((e) => e.value === m.def);
+        out[m.name] = own ? enc(own) : def ? enc(def) : (asNumber ? m.def : String(m.def));
+    });
     return out;
 }
 
-/** варианты для перебора: перечисление первого члена (или самого типа), без значения «нет запроса» */
+// служебные значения: «без изменений», «резерв», «сигнал не заполнен / недействителен»
+const SERVICE = /KEINE_AENDERUNG|NO_CHANGE|RESERVIERT|RESERVED|SIGNAL_|UNGUELTIG|UNBEFUELLT|INVALID|NOT_AVAILABLE/i;
+
+/** варианты для перебора: перечисление первого члена (или самого типа) без служебных значений */
 function options(rt) {
     const src = rt.members.length ? rt.members[0].enums : rt.enums;
-    return (src || []).filter((e) => e.value !== (rt.members[0] && rt.members[0].def));
+    return (src || []).filter((e) => !SERVICE.test(e.name) && e.value !== (rt.members[0] && rt.members[0].def));
 }
 
-module.exports = { findType, resolveType, buildValue, options, fieldDef, leaf, withLeaf, describe, enumsIn, next, show };
+/** значение «без изменений» (KEINE_AENDERUNG), если есть, иначе по умолчанию - для сброса */
+function neutral(rt) {
+    const src = rt.members.length ? rt.members[0].enums : rt.enums;
+    return (src || []).find((e) => /KEINE_AENDERUNG|NO_CHANGE/i.test(e.name))
+        || (src || []).find((e) => rt.members[0] && e.value === rt.members[0].def) || null;
+}
+
+const RU = {
+    ASD_DEAKTIVIERT: 'выключен', SILENT: 'тихо', MINIMAL: 'минимальный', AUSGEWOGEN: 'сбалансированный',
+    PROMINENT: 'заметный', SEHR_PROMINENT: 'очень заметный', MAXIMAL: 'максимальный', KEINE_AENDERUNG: 'без изменений',
+};
+/** имя варианта по-русски: GRUNDSOUND_2 -> «звук 2» */
+function ru(name) {
+    const m = /^GRUNDSOUND_(\d+)$/.exec(name || '');
+    return m ? 'звук ' + m[1] : RU[name] || name;
+}
+
+module.exports = { findType, resolveType, buildValue, options, neutral, ru, fieldDef, leaf, withLeaf, describe, enumsIn, next, show };
