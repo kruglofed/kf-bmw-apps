@@ -2,17 +2,17 @@
   "id": "kf_sound",
   "title": "Уличный динамик",
   "description": "Наружный динамик и звук мотора: включение ASD и звук мотора в Индивидуальном режиме с экрана, поиск настроек звука в головном устройстве",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "vendor": "custom",
   "loggingId": "OAKS",
   "signals": {
     "de.bmw.infotainment.vehicle.VSGSwitch": {
       "_optional": "переключатель ASD",
-      "personalizationASD": "rsw"
+      "personalizationASD": "rs"
     },
     "de.bmw.powertrain.enginesound.EngineSoundConfiguration": {
       "_optional": "звук мотора в Индивидуальном режиме",
-      "operationIndividualizationEngineSound": "rsw"
+      "operationIndividualizationEngineSound": "rs"
     }
   },
   "screens": [
