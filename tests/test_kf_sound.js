@@ -70,3 +70,17 @@ assert.strictEqual(P.info(pdb, 'nope').extra, 'интерфейса нет в к
 const pr = P.probe(pdb, 'a.b.X', 'f', ['1']);
 assert.ok(!pr[0].ok && /генератор/.test(pr[0].msg), 'без прошивки - понятная ошибка, не исключение');
 console.log('kf_sound probe: ok');
+
+/* --- типы для записи (формат каталога G05 с фото) --- */
+const tdb = { typeCollections: { 'de.bmw.infotainment.vehicletypes.VehicleTypes': { types: [
+    { name: 'OperationPersonalizationASDWrapper', type: 'struct', members: [{ dataRef: 'de.bmw.infotainment.vehicletypes.VehicleTypes.PersonalisationASD', defaultValue: 15, name: 'personalisationRequestASD' }] },
+    { name: 'PersonalisationASD', type: 'enumeration', enumerators: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }, { name: 'SIGNAL_INVALID', value: 15 }] },
+] } } };
+const rt = C.resolveType(tdb, 'de.bmw.infotainment.vehicletypes.VehicleTypes.OperationPersonalizationASDWrapper');
+assert.strictEqual(rt.kind, 'struct');
+assert.strictEqual(rt.members[0].name, 'personalisationRequestASD');
+assert.deepStrictEqual(rt.members[0].enums.map((e) => e.value), [0, 1, 15]);
+assert.deepStrictEqual(C.options(rt).map((e) => e.name), ['OFF', 'ON'], 'без «нет запроса» (по умолчанию 15)');
+assert.deepStrictEqual(C.buildValue(rt, 1), { personalisationRequestASD: 1 });
+assert.strictEqual(C.resolveType(tdb, 'x.Nope').kind, 'нет в каталоге');
+console.log('kf_sound types: ok');

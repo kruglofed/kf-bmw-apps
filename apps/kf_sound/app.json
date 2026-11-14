@@ -1,11 +1,20 @@
 {
   "id": "kf_sound",
   "title": "Уличный динамик",
-  "description": "Наружный динамик и звук мотора: включение ASD и звук мотора в Индивидуальном режиме с экрана, поиск настроек звука в головном устройстве",
-  "version": "0.2.4",
+  "description": "Наружный динамик и звук мотора: запись настроек ASD и громкости звука мотора с экрана, поиск настроек звука в головном устройстве",
+  "version": "0.3.0",
   "vendor": "custom",
   "loggingId": "OAKS",
-  "signals": {},
+  "signals": {
+    "de.bmw.infotainment.vehicle.VSGSwitch": {
+      "_optional": "включение ASD",
+      "personalizationASD": "w"
+    },
+    "de.bmw.powertrain.enginesound.EngineSoundConfiguration": {
+      "_optional": "звук мотора в Индивидуальном режиме",
+      "operationIndividualizationEngineSound": "w"
+    }
+  },
   "screens": [
     {
       "name": "MAIN",
@@ -14,15 +23,15 @@
       "buttons": [
         [
           "BTN_ASD",
-          "ASD: переключить"
+          "ASD: следующее значение"
         ],
         [
           "BTN_ENG",
-          "Звук мотора: следующий"
+          "Звук мотора: следующее"
         ],
         [
           "BTN_RESTORE",
-          "Вернуть как было"
+          "Сбросить запрос"
         ],
         [
           "BTN_PAGE",

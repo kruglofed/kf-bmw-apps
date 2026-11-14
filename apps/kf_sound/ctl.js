@@ -127,4 +127,49 @@ function fieldDef(db, iface, field) {
     return s.length > 420 ? s.slice(0, 420) + '…' : s;
 }
 
-module.exports = { fieldDef, leaf, withLeaf, describe, enumsIn, next, show };
+/** определение типа по dataRef ("de.bmw...Types.Name") или имени: узел с members / перечислением */
+function findType(db, ref) {
+    const name = String(ref || '').split('.').pop();
+    if (!name) return null;
+    let best = null, budget = 3000000;
+    const looks = (n) => n && typeof n === 'object' && !Array.isArray(n) && (n.members || n.enumerators || n.values || n.literals || n.items || n.type);
+    (function walk(n) {
+        if (best || budget-- <= 0 || !n || typeof n !== 'object') return;
+        if (Array.isArray(n)) { n.forEach(walk); return; }
+        if (n.name === name && looks(n)) { best = n; return; }
+        for (const k of Object.keys(n)) { if (k === name && looks(n[k])) { best = n[k]; return; } walk(n[k]); }
+    })(db);
+    return best;
+}
+
+/**
+ * Разбор типа поля: struct -> члены с их вариантами (enum) и значением по умолчанию.
+ *   { name, kind, members: [{ name, ref, def, enums }], enums, raw }
+ */
+function resolveType(db, ref) {
+    const t = findType(db, ref);
+    if (!t) return { name: String(ref).split('.').pop(), kind: 'нет в каталоге', members: [], enums: [], raw: '' };
+    let raw; try { raw = JSON.stringify(t); } catch (e) { raw = ''; }
+    const members = (Array.isArray(t.members) ? t.members : []).map((m) => {
+        const mt = m.dataRef ? findType(db, m.dataRef) : null;
+        let mraw = ''; try { mraw = JSON.stringify(mt); } catch (e) { /* */ }
+        return { name: m.name, ref: m.dataRef || m.type, def: m.defaultValue, enums: mt ? enumsIn(mt).sort((a, b) => a.value - b.value) : [], raw: mraw };
+    });
+    return { name: t.name || String(ref).split('.').pop(), kind: t.type || (members.length ? 'struct' : 'enum'), members, enums: enumsIn(t), raw };
+}
+
+/** значение для записи: всем членам struct - v (если у члена есть такой вариант), остальным - по умолчанию */
+function buildValue(rt, v) {
+    if (!rt.members.length) return v;
+    const out = {};
+    rt.members.forEach((m) => { out[m.name] = (!m.enums.length || m.enums.some((e) => e.value === v)) ? v : (m.def !== undefined ? m.def : v); });
+    return out;
+}
+
+/** варианты для перебора: перечисление первого члена (или самого типа), без значения «нет запроса» */
+function options(rt) {
+    const src = rt.members.length ? rt.members[0].enums : rt.enums;
+    return (src || []).filter((e) => e.value !== (rt.members[0] && rt.members[0].def));
+}
+
+module.exports = { findType, resolveType, buildValue, options, fieldDef, leaf, withLeaf, describe, enumsIn, next, show };

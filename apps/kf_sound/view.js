@@ -91,32 +91,35 @@ function drawList(cv, t, st, page) {
     return pages;
 }
 
-function ctlPanel(cv, t, x, w, c, show) {
+function ctlPanel(cv, t, x, w, c) {
     G.panel(cv, t, x, 44, w, 400, c.label);
     const L = (txt, y, size, color, bold) => cv.text(txt, x + 24, y, size || 21, color || t.text, bold ? { font: 'bold' } : undefined);
-    cv.text(c.iface.split('.').slice(-1)[0] + ' . ' + c.field, x + 24, 106, 18, t.dim, { literal: true });
-    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 190, 20, t.warn);
-    L('Сейчас:', 150, 22, t.dim);
-    cv.text(c.value === undefined ? 'нет данных' : show(c.value, c.enums), x + w - 24, 150, 30, c.value === undefined ? t.dim : t.accent, { align: 'right', font: 'bold' });
-    L(c.msg || 'Нажмите кнопку «' + c.button + '» в меню снизу.', 222, 20, c.msgColor ? t[c.msgColor] : t.text);
+    const lit = (txt, y, size, color) => cv.text(txt, x + 24, y, size, color || t.dim, { literal: true });
+    lit(c.iface.split('.').slice(-1)[0] + ' . ' + c.field, 106, 18);
+    L('Записано:', 150, 22, t.dim);
+    const wr = c.written ? c.written.name + ' (' + c.written.value + ')' : 'ничего';
+    cv.text(wr, x + w - 24, 150, 30, c.written ? t.accent : t.dim, { align: 'right', font: 'bold', literal: true });
+    const opts = c.opts || [];
+    const ol = opts.length ? opts.map((o) => o.value + ' ' + o.name).join(', ') : (c.rt ? 'не найдены' : 'читаю каталог…');
+    L('Варианты:', 194, 20, t.dim);
+    cv.text(ol.length > 62 ? ol.slice(0, 62) + '…' : ol, x + 150, 194, 19, t.text, { literal: true });
+    if (c.error) L('Нет связи: ' + String(c.error).slice(0, 60), 232, 20, t.warn);
+    L(c.msg || 'Нажмите «' + c.button + '» в меню снизу.', 268, 20, c.msgColor ? t[c.msgColor] : t.text);
     const lines = [];
-    if (c.raw) lines.push('Структура: ' + c.raw);
-    if (c.def) lines.push('Поле: ' + c.def);
-    if (c.typesText && c.typesText !== '[]') lines.push('Тип: ' + c.typesText);
-    (c.probe || []).forEach((r) => lines.push('Установщик ' + r.flags + ', экз. "' + r.inst + '": ' + r.msg.replace('IFConfigGenerator::generate() Failed due to Error: ', '')));
-    if (!lines.length && c.where) lines.push('В каталоге: ' + c.where);
+    if (c.rt) lines.push('Тип ' + c.rt.name + ' (' + c.rt.kind + '): ' + (c.rt.members.map((m) => m.name + (m.def !== undefined ? '=' + m.def : '') + (m.enums.length ? '[' + m.enums.map((e) => e.value + ' ' + e.name).join(', ') + ']' : '')).join('; ') || c.rt.raw));
+    if (!opts.length && c.def) lines.push('Поле: ' + c.def);
+    if (!opts.length && c.rt && c.rt.members[0] && c.rt.members[0].raw) lines.push('Член: ' + c.rt.members[0].raw);
     const out = [];
-    lines.forEach((l) => { for (let i = 0; i < l.length && out.length < 10; i += 88) out.push(l.slice(i, i + 88)); });
-    out.slice(0, 10).forEach((l, i) => cv.text(l, x + 24, 250 + i * 18, 14, t.dim, { literal: true }));
+    lines.forEach((l) => { for (let i = 0; i < l.length && out.length < 8; i += 88) out.push(l.slice(i, i + 88)); });
+    out.slice(0, 8).forEach((l, i) => lit(l, 300 + i * 18, 14));
 }
 
 /** страница «Звук»: две настройки с записью и кнопки */
 function drawControl(cv, t, st, show) {
-    ctlPanel(cv, t, 24, 764, st.ctl.asd, show);
-    ctlPanel(cv, t, 812, 764, st.ctl.eng, show);
-    const ctl = st.ctl.check ? 'Проверка установщика на обычном сигнале (обороты): ' + st.ctl.check : 'Проверяю установщик…';
-    cv.text(ctl, 48, 474, 20, /ок/.test(ctl) ? t.text : t.warn, { literal: true });
-    cv.text('Что-то не так: «Вернуть как было». Пишется только настройка головного устройства, как из обычного меню.', 48, 504, 18, t.dim);
+    ctlPanel(cv, t, 24, 764, st.ctl.asd);
+    ctlPanel(cv, t, 812, 764, st.ctl.eng);
+    cv.text('Проба на стоянке: нажмите кнопку, включите режим Комфорт и послушайте динамик снаружи.', 48, 474, 20, t.text);
+    cv.text('Машина не даёт прочитать текущее значение, поэтому видно только то, что записали. «Сбросить запрос» снимает запрос.', 48, 504, 18, t.dim);
 }
 
 module.exports = { drawMain, drawList, drawControl, verdict };

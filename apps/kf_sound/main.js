@@ -8,12 +8,15 @@
  *   EngineSoundConfiguration.operationIndividualizationEngineSound - звук мотора в Индивидуальном режиме
  *
  * Страницы:
- *   Звук      обе настройки: текущее значение, варианты из каталога, кнопки «переключить» и «вернуть»
+ *   Звук      обе настройки: варианты из каталога, что записано, ответ машины; кнопки
+ *             «следующее значение» и «Сбросить запрос»
  *   Итог      итог поиска по каталогу
  *   Найдено   таблица найденного (интерфейс, поле, что это, доступ)
  *
- * Пишет только эти две настройки головного устройства (как обычное меню iDrive) и только по кнопке.
- * Первое прочитанное значение запоминается: «Вернуть как было» записывает его обратно.
+ * Оба поля только на запись (getter/notifier нет - установщик падал на флагах r/s), поэтому
+ * текущее значение не известно: кнопка перебирает варианты перечисления из каталога, а
+ * «Сбросить запрос» пишет значение по умолчанию (15 - «нет запроса»).
+ * Пишет только эти две настройки и только по кнопке.
  */
 const fs = require('fs');
 const path = require('path');
@@ -21,19 +24,23 @@ const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const { scan, summary, readCatalog, report } = require('./scan');
 const C = require('./ctl');
-const P = require('./probe');
 const V = require('./view');
 
 const W = 1600, H = 520;
 const PAGES = ['Звук', 'Итог', 'Найдено'];
-// true - только вместе с интерфейсами в app.json "signals" (с ними 0.2.0/0.2.1 не ставились)
-const CONNECT = false;
 
 const DEMO_DB = { interfaces: {
-    'de.bmw.infotainment.vehicle.VSGSwitch': { fields: { personalizationASD: { getter: true, setter: true } } },
-    'de.bmw.powertrain.enginesound.EngineSoundConfiguration': { fields: { operationIndividualizationEngineSound: { getter: true, setter: true } } },
+    'de.bmw.infotainment.vehicle.VSGSwitch': { fields: { personalizationASD: { dataRef: 'x.VehicleTypes.OperationPersonalizationASDWrapper', setter: { id: 2 } } } },
+    'de.bmw.powertrain.enginesound.EngineSoundConfiguration': { fields: { operationIndividualizationEngineSound: { dataRef: 'x.EngineSoundTypes.OperationIndividualizationEngineSoundWrapper', setter: { id: 1 } } } },
     'de.bmw.infotainment.drivingexcitement.FES': { fields: { statusDrivingExperience: { getter: true } } },
-} };
+}, types: [
+    { name: 'OperationPersonalizationASDWrapper', type: 'struct', members: [{ dataRef: 'x.PersonalisationASD', defaultValue: 15, name: 'personalisationRequestASD' }] },
+    { name: 'PersonalisationASD', type: 'enumeration', enumerators: [{ name: 'OFF', value: 0 }, { name: 'ON', value: 1 }, { name: 'SIGNAL_INVALID', value: 15 }] },
+    { name: 'OperationIndividualizationEngineSoundWrapper', type: 'struct', members: [
+        { dataRef: 'x.OperationAdjustProminenceEngineSoundVehicle', defaultValue: 15, name: 'operationAdjustProminenceEngineSoundVehicleStartup' },
+        { dataRef: 'x.OperationAdjustProminenceEngineSoundVehicle', defaultValue: 15, name: 'operationAdjustProminenceEngineSoundVehicle' }] },
+    { name: 'OperationAdjustProminenceEngineSoundVehicle', type: 'enumeration', enumerators: [{ name: 'LOW', value: 1 }, { name: 'MEDIUM', value: 2 }, { name: 'HIGH', value: 3 }, { name: 'NO_REQUEST', value: 15 }] },
+] };
 
 mgu.run({
     async start(ctx) {
@@ -44,8 +51,8 @@ mgu.run({
         const st = {
             cat: null,
             ctl: {
-                asd: { label: 'Звук мотора (ASD): вкл / выкл', button: 'ASD: переключить', iface: 'de.bmw.infotainment.vehicle.VSGSwitch', field: 'personalizationASD' },
-                eng: { label: 'Звук мотора в режиме Индивидуальный', button: 'Звук мотора: следующий', iface: 'de.bmw.powertrain.enginesound.EngineSoundConfiguration', field: 'operationIndividualizationEngineSound' },
+                asd: { label: 'Звук мотора (ASD): вкл / выкл', button: 'ASD: следующее значение', iface: 'de.bmw.infotainment.vehicle.VSGSwitch', field: 'personalizationASD' },
+                eng: { label: 'Звук мотора в режиме Индивидуальный', button: 'Звук мотора: следующее', iface: 'de.bmw.powertrain.enginesound.EngineSoundConfiguration', field: 'operationIndividualizationEngineSound' },
             },
         };
         const CTL = [st.ctl.asd, st.ctl.eng];
@@ -69,22 +76,17 @@ mgu.run({
                     try { const d = C.describe(data, c.field); c.enums = d.enums; c.where = (d.paths || []).join(' | ') || 'не найдено'; c.typesText = d.typesText; lines.push(c.field + ': ' + d.text); log.info('describe ' + c.field + ': ' + d.text); }
                     catch (e) { log.warn('describe ' + c.field + ': ' + e); }
                 });
+                CTL.forEach((c) => {
+                    const n = data.interfaces && data.interfaces[c.iface];
+                    const f = n && n.fields && n.fields[c.field];
+                    c.def = C.fieldDef(data, c.iface, c.field);
+                    c.rt = C.resolveType(data, f && f.dataRef || c.field);
+                    c.opts = C.options(c.rt);
+                    lines.push(c.field + ' type: ' + JSON.stringify(c.rt));
+                    log.info('type ' + c.field + ': ' + JSON.stringify({ kind: c.rt.kind, members: c.rt.members.map((m) => [m.name, m.def, m.enums]) }));
+                });
+                CTL.forEach(connect);
                 if (!demoOn()) {
-                    // почему установщик не подключает эти интерфейсы: тот же генератор, что у MainApp
-                    try {
-                        const chk = P.probe(data, 'de.bmw.infotainment.vehicle.CDS', 'statusEngineSpeed2', ['1'])[0];
-                        st.ctl.check = chk.ok ? 'ок' : 'ошибка: ' + chk.msg;
-                        lines.push('check CDS: ' + JSON.stringify(chk));
-                        CTL.forEach((c) => {
-                            c.inst = P.info(data, c.iface);
-                                                        // 0.2.3: «Requested read … but no getter available» - поле только на запись.
-                            // Проверяем запись (w) и подписку (s) по отдельности на экземплярах 1 и *
-                            c.probe = P.probe(data, c.iface, c.field, ['1', '*'], 'w').concat(P.probe(data, c.iface, c.field, ['1'], 's'));
-                            c.def = C.fieldDef(data, c.iface, c.field);
-                            lines.push(c.iface + ' info: ' + JSON.stringify(c.inst) + '\nprobe: ' + JSON.stringify(c.probe));
-                            log.info('probe ' + c.iface + ': ' + JSON.stringify(c.probe));
-                        });
-                    } catch (e) { st.ctl.check = 'ошибка: ' + e; log.warn('probe: ' + e); }
                     try { fs.writeFileSync(path.join(ctx.dataDir, 'street-types.txt'), lines.join('\n\n')); } catch (e) { /* не страшно */ }
                 }
             }
@@ -92,57 +94,46 @@ mgu.run({
         setImmediate(runScan);
         let lastDemo = demoOn();
 
-        /* ---------- живые значения ---------- */
-        function got(c, v) {
-            c.value = v; c.at = Date.now();
-            if (c.first === undefined) { c.first = v; log.info('first ' + c.field + ' = ' + JSON.stringify(v)); }
-            try { c.raw = JSON.stringify(v); } catch (e) { c.raw = String(v); }
-        }
-        // 0.2.0/0.2.1 с этими интерфейсами в app.json не ставились (generateSomeipInterfaces): пока
-        // они не объявлены, связи нет - страница показывает, где поля лежат в каталоге
-        CTL.forEach((c) => {
-            if (!CONNECT) { c.error = 'не подключено в этой версии'; return; }
-            ctx.signals.watch(c.iface, '1', { [c.field]: (v) => got(c, v) }, log, { pollMs: 3000 })
-                .then((s) => { c.sub = s; if (s && s.error) c.error = s.error; })
-                .catch((e) => { c.error = String(e); log.warn(c.iface + ': ' + e); });
-        });
-
-        async function reread(c) {
-            const p = c.sub && c.sub.proxy;
-            if (!p || !p.getValue) return;
-            try { got(c, await p.getValue(c.field, 3000)); } catch (e) { /* придёт подпиской */ }
+        /* ---------- запись (поля только на запись: прочитать текущее значение машина не даёт) ---------- */
+        // proxy строится после разбора каталога: нужен тип значения
+        async function connect(c) {
+            if (demoOn()) return;
+            try { c.p = await ctx.signals.proxy(c.iface, '1'); c.error = null; log.info('proxy ' + c.iface + ' ok'); }
+            catch (e) { c.error = String(e); log.warn('proxy ' + c.iface + ': ' + e); }
+            render();
         }
 
         async function write(c, v, what) {
-            const p = c.sub && c.sub.proxy;
-            if (!p) { c.msg = 'Нет связи с ' + c.iface.split('.').pop() + ', записать нельзя'; c.msgColor = 'warn'; return render(); }
+            if (demoOn()) { c.msg = 'Демо: ' + what; c.msgColor = 'accent'; return render(); }
+            if (!c.p) { c.msg = 'Нет связи с ' + c.iface.split('.').pop() + (c.error ? ': ' + String(c.error).slice(0, 40) : ''); c.msgColor = 'warn'; return render(); }
             c.msg = what + '…'; c.msgColor = null; render();
             try {
-                await ctx.signals.set(p, c.field, v, 5000);
+                await ctx.signals.set(c.p, c.field, v, 5000);
                 log.info('set ' + c.field + ' = ' + JSON.stringify(v) + ' ok');
                 c.msg = what + ': машина приняла'; c.msgColor = 'accent';
             } catch (e) {
                 log.warn('set ' + c.field + ' = ' + JSON.stringify(v) + ': ' + e);
-                c.msg = 'Машина не приняла: ' + String(e).slice(0, 50); c.msgColor = 'warn';
+                c.msg = 'Машина не приняла: ' + String(e).slice(0, 60); c.msgColor = 'warn';
             }
-            setTimeout(() => reread(c).then(render), 600);
             return render();
         }
 
         function step(c) {
-            if (demoOn()) { const l = C.leaf(c.value === undefined ? { value: 0 } : c.value); got(c, C.withLeaf(c.value === undefined ? { value: 0 } : c.value, l.path, C.next(l.value, c.enums))); c.msg = 'Демо: значение переключено'; return render(); }
-            if (c.value === undefined) { c.msg = 'Машина ещё не прислала значение, пробовать нечего'; c.msgColor = 'warn'; return render(); }
-            const l = C.leaf(c.value);
-            const nx = l ? C.next(l.value, c.enums) : undefined;
-            if (nx === undefined) { c.msg = 'Непонятный тип значения, пришлите фото экрана'; c.msgColor = 'warn'; return render(); }
-            return write(c, C.withLeaf(c.value, l.path, nx), C.show(c.value, c.enums) + ' на ' + String(nx));
+            const opts = c.opts || [];
+            if (!opts.length) { c.msg = 'Варианты значений не найдены в каталоге, пришлите фото экрана'; c.msgColor = 'warn'; return render(); }
+            c.idx = ((c.idx === undefined ? -1 : c.idx) + 1) % opts.length;
+            const o = opts[c.idx];
+            c.written = o;
+            return write(c, C.buildValue(c.rt, o.value), 'Записываю ' + o.name + ' (' + o.value + ')');
         }
 
-        async function restore() {
+        async function reset() {
             for (const c of CTL) {
-                if (c.first === undefined || JSON.stringify(c.first) === JSON.stringify(c.value)) { c.msg = 'Уже как было'; c.msgColor = null; continue; }
-                if (demoOn()) { got(c, c.first); c.msg = 'Демо: вернул'; continue; }
-                await write(c, c.first, 'Возвращаю ' + C.show(c.first, c.enums));
+                if (!c.rt) continue;
+                const d = c.rt.members.length ? c.rt.members[0].def : undefined;
+                if (d === undefined) { c.msg = 'Нет значения «по умолчанию» в каталоге'; continue; }
+                c.written = { name: 'по умолчанию', value: d }; c.idx = -1;
+                await write(c, C.buildValue(c.rt, d), 'Сброс (' + d + ')');
             }
             return render();
         }
@@ -151,7 +142,7 @@ mgu.run({
         async function render() {
             if (demoOn() !== lastDemo) { lastDemo = demoOn(); runScan(); }
             const t = ctx.theme(), cv = ctx.canvas(W, H).clear(t.bg);
-            if (page === 0) V.drawControl(cv, t, st, C.show);
+            if (page === 0) V.drawControl(cv, t, st);
             else if (page === 1) V.drawMain(cv, t, st);
             else listPages = V.drawList(cv, t, st, listPage);
             G.frame(cv, t, PAGES, page, [demoOn() && { text: 'DEMO' }]);
@@ -161,7 +152,7 @@ mgu.run({
         const go = (i) => { page = (i + PAGES.length) % PAGES.length; return render(); };
         ui.onClick('BTN_ASD', () => { page = 0; return step(st.ctl.asd); });
         ui.onClick('BTN_ENG', () => { page = 0; return step(st.ctl.eng); });
-        ui.onClick('BTN_RESTORE', () => { page = 0; return restore(); });
+        ui.onClick('BTN_RESTORE', () => { page = 0; return reset(); });
         ui.onClick('BTN_PAGE', () => {
             if (page === 2 && listPage + 1 < listPages) { listPage++; return render(); }
             listPage = 0; return go(page + 1);
