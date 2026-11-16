@@ -447,14 +447,17 @@ mgu.run({
             const ps = L.periods.slice().reverse().slice(0, fit);
             const fm = fuelMatches(L);
             const cols = [{ label: 'Дата', w: 130 }, { label: 'АЗС, топливо', w: 330 }, { label: 'Реальн. пробег', w: 190, align: 'right' }, { label: 'Залито', w: 140, align: 'right' },
-                { label: 'Цена', w: 160, align: 'right' }, { label: 'Сумма', w: 160, align: 'right' }, { label: 'На баке', w: 170, align: 'right' },
+                { label: 'Цена', w: 160, align: 'right' }, { label: 'Сумма', w: 160, align: 'right' }, { label: 'До заправки', w: 170, align: 'right' },
                 { label: 'Реальный расход', w: 224, align: 'right' }];
-            if (ps.some((x) => x.partial)) cv.text('* первый бак: учёт начат не с заправки', 1552, 296, 20, t.dim, { align: 'right' });
+            const first = ps.find((x) => x.partial);
+            cv.text((first ? '* учёт начат ' + dateOf(first.start) + ', не с заправки: бак посчитан не весь · ' : '') + '«До заправки» — км на баке перед этой заправкой',
+                1552, 296, 20, t.dim, { align: 'right' });
             G.table(cv, t, 48, 322, 1504, cols, ps.map((x) => {
                 const p = Pr.at(x.end), fl = fm.m.get(x.end);
                 return [dateOf(x.end), fl ? { text: fl.station + (fl.grade ? ' · ' + fl.grade : ''), font: 'bold' } : { text: 'нет чека', color: 'dim' },
                     km(x.odo1 + (demo ? 0 : offset())) + ' км', isNum(x.added) ? '+' + f1(fl && isNum(fl.litres) ? fl.litres : x.added) + ' л' : '--',
-                    rubl(p) + ' руб', fl && isNum(fl.total) ? group(fl.total) + ' руб' : isNum(x.added) ? group(x.added * p) + ' руб' : '--', km(x.km) + ' км',
+                    rubl(p) + ' руб', fl && isNum(fl.total) ? group(fl.total) + ' руб' : isNum(x.added) ? group(x.added * p) + ' руб' : '--',
+                    x.partial ? { text: km(x.km) + ' км*', color: 'dim' } : km(x.km) + ' км',
                     isNum(per100(x.km, x.l)) ? { text: f1(per100(x.km, x.l)) + ' л/100' + (x.partial ? '*' : ''), color: x.partial ? 'dim' : null } : '--'];
             }),
             { rowH, size: 24, empty: 'Заправки появятся здесь: приложение замечает, когда уровень в баке вырос на 7 л и больше на стоянке' });
