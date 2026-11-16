@@ -26,6 +26,8 @@ const MATCH_MS = 8 * 3600000, MIN_KM = 50;
 const FILLS = [
     { date: '2026-11-10', time: '20:25', station: 'Тебойл', place: 'АЗС 12003 «Каштановая роща», Шолохово, Дмитровское ш., 2а', grade: 'ДТ-Е-К5',
         litres: 66.18, price: 81.11, total: 5367.86 },
+    { date: '2026-11-16', time: '19:09', station: 'Тебойл', place: 'АЗС 11099 «Ларево», Сухарево, Дмитровское ш., зем. стр. 129', grade: 'ДТ-3-К5',
+        litres: 67.97, price: 81.7, total: 5553.15 },
 ];
 
 const isNum = (x) => typeof x === 'number' && isFinite(x);
