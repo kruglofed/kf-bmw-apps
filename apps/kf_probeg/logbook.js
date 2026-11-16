@@ -13,7 +13,11 @@
  * Заправки. Уровень бака сглаживается медианой последних показаний. Если он стал выше самого низкого
  * уровня с прошлой заправки на REFUEL_L литров и больше, пока машина стоит, это заправка. Уровень во время
  * заправки растёт постепенно (и датчик запаздывает): рост в течение EXTEND_MS на том же месте
- * добавляется к той же заправке, а не считается новой (раньше 66 л записывались как «+5 л» и «+13 л»). Расход за бак =
+ * добавляется к той же заправке, а не считается новой (раньше 66 л записывались как «+5 л» и «+13 л»).
+ * С 1.9.5 рост считается не от самого низкого уровня за поездку (в поездке топливо плещется, на уклоне и при
+ * торможении датчик занижает - отсюда ложные «заправки», когда машина просто встала), а от уровня на этой
+ * стоянке: через SETTLE_MS после остановки, на том же месте по одометру. undoRefuel() убирает ложную заправку,
+ * склеивая баки. Расход за бак =
  * (уровень после прошлой заправки - уровень перед этой) / км между ними. Пока заправка не замечена ни
  * разу, отсчёт идёт от первого показания (бак помечен "неполный").
  *
@@ -26,7 +30,9 @@
  *                                        ушёл (priceAt(время заправки) из prices.js)
  *   lb.toJSON()
  */
-const REFUEL_L = 5;          // рост уровня на столько литров и больше - заправка
+const REFUEL_L = 7;          // рост уровня на столько литров и больше - заправка (было 5: ложные заправки 13 и 15.11)
+const SETTLE_MS = 45000;     // уровень «до заправки» берётся после стольких секунд стоянки (топливо успокоилось)
+const STOP_KM = 0.3;         // сдвиг одометра больше этого - машина уехала, стоянка закончилась
 const EXTEND_MS = 30 * 60000; // рост уровня так скоро после заправки и на том же месте - та же заправка
 const WINDOW = 7;            // показаний бака для медианы
 const WINDOW_MS = 120000;    // старше этого показание в медиану не идёт
@@ -60,6 +66,7 @@ class Logbook {
         if (s.fuel && typeof s.fuel === 'object') Object.keys(s.fuel).forEach((k) => { if (isNum(s.fuel[k])) this.fuel[k] = s.fuel[k]; });
         this.fuelBy = {};                                           // день -> { время заправки бака: литров }
         if (s.fuelBy && typeof s.fuelBy === 'object') Object.keys(s.fuelBy).forEach((k) => { if (s.fuelBy[k] && typeof s.fuelBy[k] === 'object') this.fuelBy[k] = s.fuelBy[k]; });
+        this.stop = s.stop && isNum(s.stop.odo) && isNum(s.stop.t) ? s.stop : null;   // стоянка: { t, odo, lv? }
         this.win = [];                                              // [t, литры] - не сохраняется
         this.ver = 0;
         this.mergeSplit();
@@ -107,6 +114,15 @@ class Logbook {
     }
 
     feedTank(now, litres, speed) {
+        // перерыв в данных (машина спала): если стоянка ещё не успела «успокоиться», уровнем до неё
+        // считается последний уровень перед перерывом - иначе заправка с заглушенным мотором потеряется
+        const gap = isNum(this.lastAt) && now - this.lastAt > 120000;
+        if (gap && isNum(this.tank) && this.odo !== null && isNum(this.lastOdo) && Math.abs(this.odo - this.lastOdo) <= STOP_KM) {
+            if (!this.stop) this.stop = { t: now, odo: this.odo, lv: this.tank };
+            else if (!isNum(this.stop.lv)) this.stop.lv = this.tank;
+            this.ver++;
+        }
+        this.lastAt = now; this.lastOdo = this.odo;
         this.win.push([now, litres]);
         while (this.win.length && (this.win.length > WINDOW || now - this.win[0][0] > WINDOW_MS)) this.win.shift();
         if (this.win.length < 3) return null;
@@ -132,6 +148,12 @@ class Logbook {
             this.low = lv; this.ver++; return null;
         }
         const standing = speed === null || speed < 3;
+        // стоянка: где и когда встали, и уровень после того, как топливо успокоилось
+        if (!standing || odo === null || (this.stop && Math.abs(odo - this.stop.odo) > STOP_KM)) this.stop = null;
+        if (standing && odo !== null) {
+            if (!this.stop) { this.stop = { t: now, odo }; this.ver++; }
+            else if (!isNum(this.stop.lv) && now - this.stop.t >= SETTLE_MS) { this.stop.lv = lv; this.ver++; }
+        }
         // уровень ещё растёт вскоре после заправки на том же месте: это та же заправка
         const f0 = this.fill;
         if (!f0.partial && now - f0.t < EXTEND_MS && odo !== null && Math.abs(odo - f0.odo) < 1 && lv >= f0.tank + 0.5) {
@@ -140,11 +162,15 @@ class Logbook {
             const p = this.periods[this.periods.length - 1];
             if (p && p.end === f0.t) p.added = added;
             this.low = lv; this.win = []; this.ver++;
+            if (this.stop) this.stop.lv = lv;
             return { t: f0.t, odo, before: round(lv - added, 1), after: lv, added, extended: true };
         }
-        if (standing && lv - this.low >= REFUEL_L && odo !== null) {
-            const f = this.fill, km = odo - f.odo, l = round(f.tank - this.low, 1);
-            const refuel = { t: now, odo, before: this.low, after: lv, added: round(lv - this.low, 1) };
+        const st = this.stop;
+        if (standing && st && isNum(st.lv) && lv - st.lv >= REFUEL_L && odo !== null) {
+            // «до заправки» - уровень на этой стоянке: самый низкий за поездку бывает занижен (плеск, уклон)
+            const before = Math.max(this.low, st.lv);
+            const f = this.fill, km = odo - f.odo, l = round(f.tank - before, 1);
+            const refuel = { t: now, odo, before, after: lv, added: round(lv - before, 1) };
             if (km >= 1) {
                 this.periods.push({ start: f.t, end: now, odo0: f.odo, odo1: odo, km, l, added: refuel.added, partial: !!f.partial });
                 while (this.periods.length > KEEP_PERIODS) this.periods.shift();
@@ -152,10 +178,35 @@ class Logbook {
             this.fill = { t: now, odo, tank: lv, added: refuel.added };
             this.low = lv;
             this.win = [];
+            this.stop = { t: now, odo, lv };
             this.ver++;
             return refuel;
         }
         return null;
+    }
+
+    /**
+     * Убрать последнюю заправку (ложную): её бак склеивается с предыдущим. Возвращает убранную
+     * { t, added } или null, если убирать нечего (заправка ещё не начала бак или учёт начат с неё).
+     */
+    undoRefuel() {
+        const f = this.fill, p = this.periods[this.periods.length - 1];
+        if (!f || f.partial || !p || p.end !== f.t) return null;
+        const before = round(f.tank - (f.added || 0), 1);           // уровень перед «заправкой»
+        const prev = this.periods[this.periods.length - 2];
+        this.periods.pop();
+        this.fill = { t: p.start, odo: p.odo0, tank: round(before + p.l, 1) };
+        if (prev && prev.end === p.start && isNum(prev.added)) this.fill.added = prev.added;
+        if (p.partial) this.fill.partial = true;
+        // low не трогаем: показания после ложной заправки и есть настоящий уровень.
+        // Топливо после неё - из прежнего бака: литры дня переносятся на него
+        const from = String(f.t), to = String(p.start);
+        Object.keys(this.fuelBy).forEach((k) => {
+            const by = this.fuelBy[k];
+            if (by && isNum(by[from])) { by[to] = round((by[to] || 0) + by[from], 2); delete by[from]; }
+        });
+        this.ver++;
+        return { t: f.t, added: f.added };
     }
 
     /** км с начала дня key (включительно) до последнего показания; null без данных */
@@ -223,7 +274,7 @@ class Logbook {
     }
 
     toJSON() {
-        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel, fuelBy: this.fuelBy };
+        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel, fuelBy: this.fuelBy, stop: this.stop };
     }
 }
 

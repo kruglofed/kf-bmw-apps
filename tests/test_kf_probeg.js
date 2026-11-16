@@ -90,6 +90,7 @@ assert.strictEqual(dayKey(t0), '2026-11-01');
     feed(70, 0, 8);                                       // начало учёта
     for (let k = 0; k < 50; k++) { odo += 10; feed(70 - k, 60, 2); }   // проехали 500 км, бак до 21 л
     const events = [];
+    feed(21, 0, 60);                                      // встали у колонки: минута до пистолета
     for (let lv = 21; lv <= 87; lv += 0.4) { const r = L.feed(t, { odo, tank: lv, speed: 0 }); if (r.refuel) events.push(r.refuel); t += 1000; }
     feed(87, 0, 20);
     assert.ok(events.length >= 1, 'заправка замечена');
@@ -98,7 +99,7 @@ assert.strictEqual(dayKey(t0), '2026-11-01');
     assert.ok(Math.abs(last.added - 66) < 2, 'залито ~66 л, а не 5: ' + last.added);
     assert.ok(Math.abs(L.fill.added - 66) < 2 && Math.abs(L.periods[L.periods.length - 1].added - 66) < 2, 'и в учёте');
     // через 40 мин и 5 км - уже новая заправка, не продолжение
-    odo += 5; feed(85, 40, 4); t += 40 * 60000; feed(85, 0, 8);
+    odo += 5; feed(85, 40, 4); t += 40 * 60000; feed(85, 0, 60);
     const r2 = []; for (let lv = 85; lv <= 95; lv += 0.5) { const r = L.feed(t, { odo, tank: lv, speed: 0 }); if (r.refuel) r2.push(r.refuel); t += 1000; }
     assert.ok(r2.some((e) => !e.extended), 'новая заправка отдельно');
 }
@@ -111,5 +112,35 @@ assert.strictEqual(dayKey(t0), '2026-11-01');
     assert.strictEqual(L.fill.added, 18, 'куски сложены');
     assert.strictEqual(L.fill.t, t1, 'заправка - с первого куска');
     assert.strictEqual(L.periods[0].added, 18);
+}
+/* 1.9.5: ложные заправки (13 и 15.11) - плеск и уклон в поездке, машина просто встала */
+{
+    const { Logbook } = require('../apps/kf_probeg/logbook');
+    const L = new Logbook(null);
+    let t = new Date(2026, 10, 13, 9, 0).getTime(), odo = 2000;
+    const feed = (tank, speed, n) => { const out = []; for (let i = 0; i < (n || 4); i++) { const r = L.feed(t, { odo, tank, speed }); if (r.refuel) out.push(r.refuel); t += 1000; } return out; };
+    feed(60, 0, 60);
+    for (let k = 0; k < 30; k++) { odo += 1; feed(60 - k * 0.1, 50, 3); }
+    feed(50, 20, 6);                                      // торможение / уклон: датчик занизил на 7 л
+    assert.ok(!feed(57, 0, 90).length, 'встали, топливо успокоилось - это не заправка');
+    assert.ok(!feed(58, 2, 30).length, 'пробка: ползём 2 км/ч - не заправка');
+    assert.strictEqual(L.periods.length, 0);
+    // настоящая заправка после этого - замечается, объём от уровня на стоянке
+    odo += 3; feed(56, 40, 6); const got = feed(56, 0, 60).concat(feed(96, 0, 20));
+    assert.strictEqual(got.filter((e) => !e.extended).length, 1, 'настоящая заправка замечена');
+    assert.ok(Math.abs(L.fill.added - 40) < 1, 'залито 40 л: ' + L.fill.added);
+    // заглушили мотор сразу у колонки (приложение спало) - по уровню до перерыва
+    odo += 50; feed(50, 60, 6); feed(50, 0, 3); t += 15 * 60000;
+    const g2 = feed(90, 0, 10);
+    assert.ok(g2.some((e) => !e.extended && Math.abs(e.added - 40) < 1), 'заправка с заглушенным мотором: ' + JSON.stringify(g2));
+    // убрать последнюю заправку: баки склеиваются
+    const n = L.periods.length, prevStart = L.periods[n - 1].start;
+    const u = L.undoRefuel();
+    assert.ok(u && Math.abs(u.added - 40) < 1);
+    assert.strictEqual(L.periods.length, n - 1);
+    assert.strictEqual(L.fill.t, prevStart, 'текущий бак - с прошлой заправки');
+    assert.ok(Math.abs(L.fill.added - 40) < 1, 'объём прошлой заправки');
+    const back = new Logbook(JSON.parse(JSON.stringify(L)));
+    assert.strictEqual(back.fill.t, prevStart);
 }
 console.log('kf_probeg logbook: ok');

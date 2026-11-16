@@ -452,7 +452,7 @@ mgu.run({
                     rubl(p) + ' руб', fl && isNum(fl.total) ? group(fl.total) + ' руб' : isNum(x.added) ? group(x.added * p) + ' руб' : '--', km(x.km) + ' км',
                     isNum(per100(x.km, x.l)) ? { text: f1(per100(x.km, x.l)) + ' л/100' + (x.partial ? '*' : ''), color: x.partial ? 'dim' : null } : '--'];
             }),
-            { rowH, size: 24, empty: 'Заправки появятся здесь: приложение замечает, когда уровень в баке вырос на 5 л и больше' });
+            { rowH, size: 24, empty: 'Заправки появятся здесь: приложение замечает, когда уровень в баке вырос на 7 л и больше на стоянке' });
         }
 
         /* ---------- расходы: топливо и ТО на 1 км ---------- */
@@ -594,7 +594,28 @@ mgu.run({
 
         /* ---------- цена топлива: кнопки ---------- */
         const FUEL_PAGE = PAGES.indexOf('Заправки');
-        let priceNote = null;
+        let priceNote = null, undoArm = null;
+        /** «Заправки: убрать последнюю» - ложная заправка (машина просто стояла). Нажать дважды. */
+        function undoFuel() {
+            if (page !== FUEL_PAGE) return go(FUEL_PAGE);
+            const now = Date.now();
+            if (demoOn()) { priceNote = { until: now + 6000, text: 'Демо-режим: заправки не меняются' }; return render(); }
+            const p = lb.periods[lb.periods.length - 1];
+            if (!lb.fill || lb.fill.partial || !p || p.end !== lb.fill.t) { priceNote = { until: now + 8000, text: 'Убирать нечего: нет замеченных заправок' }; return render(); }
+            if (!undoArm || now > undoArm.until || undoArm.t !== lb.fill.t) {
+                undoArm = { until: now + 8000, t: lb.fill.t };
+                priceNote = { until: now + 8000, text: 'Убрать заправку ' + dateOf(lb.fill.t) + ' (+' + f1(lb.fill.added) + ' л)? Нажмите ещё раз' };
+                fuelNote = null;
+                return render();
+            }
+            undoArm = null;
+            const u = lb.undoRefuel();
+            log.info('undo refuel: ' + JSON.stringify(u));
+            fuelNote = null;
+            priceNote = { until: now + 8000, text: u ? 'Заправка ' + dateOf(u.t) + ' убрана, баки склеены' : 'Не получилось убрать' };
+            save();
+            return render();
+        }
         function priceStep(delta) {
             if (page !== FUEL_PAGE) return go(FUEL_PAGE);
             const now = Date.now();
@@ -722,6 +743,7 @@ mgu.run({
         ui.onClick('BTN_PAGE', () => go(page + 1));
         ui.onClick('BTN_ITEM', nextItem);
         ui.onClick('BTN_DONE', pressDone);
+        ui.onClick('BTN_UNDO_FUEL', undoFuel);
         ui.onClick('BTN_PRICE_UP', () => priceStep(1));
         ui.onClick('BTN_PRICE_DN', () => priceStep(-1));
         ui.onClick('BTN_PRICE_UP_K', () => priceStep(0.1));
