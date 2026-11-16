@@ -143,4 +143,31 @@ assert.strictEqual(dayKey(t0), '2026-11-01');
     const back = new Logbook(JSON.parse(JSON.stringify(L)));
     assert.strictEqual(back.fill.t, prevStart);
 }
+/* разовая чистка ложных заправок 13 и 15.11 - и после новой настоящей заправки */
+{
+    const { Logbook } = require('../apps/kf_probeg/logbook');
+    const d = (day, h) => new Date(2026, 10, day, h || 12).getTime();
+    const saved = { odo: 3000, tank: 70, low: 70, fill: { t: d(16, 19), odo: 3000, tank: 70, added: 45 }, days: {},
+        periods: [
+            { start: d(1), end: d(10), odo0: 1000, odo1: 2000, km: 1000, l: 80, added: 70 },
+            { start: d(10), end: d(13), odo0: 2000, odo1: 2400, km: 400, l: 40, added: 6 },
+            { start: d(13), end: d(15), odo0: 2400, odo1: 2700, km: 300, l: 30, added: 6 },
+            { start: d(15), end: d(16, 19), odo0: 2700, odo1: 3000, km: 300, l: 28, added: 45 }],
+        fuelBy: { '2026-11-14': { [String(d(13))]: 5 } } };
+    const L = new Logbook(saved);
+    const out = L.fixFalse1116();
+    assert.strictEqual(out.length, 2, 'убраны 13 и 15');
+    assert.deepStrictEqual(L.periods.map((p) => [p.km, p.added]), [[1000, 70], [1000, 45]], 'бак 10-16 ноября склеен');
+    assert.strictEqual(L.periods[1].start, d(10));
+    assert.strictEqual(L.periods[1].l, 98);
+    assert.strictEqual(L.fill.t, d(16, 19), 'новая заправка цела');
+    assert.strictEqual(L.fuelBy['2026-11-14'][String(d(10))], 5, 'литры дня - на бак 10 ноября');
+    assert.strictEqual(L.fixFalse1116().length, 0, 'второй раз - ничего');
+    assert.strictEqual(new Logbook(JSON.parse(JSON.stringify(L))).fixFalse1116().length, 0, 'и после перезапуска');
+    // без новой заправки: 15-е - последняя
+    const M = new Logbook({ odo: 2800, tank: 50, low: 50, fill: { t: d(15), odo: 2700, tank: 56, added: 6 }, days: {},
+        periods: saved.periods.slice(0, 3) });
+    assert.strictEqual(M.fixFalse1116().length, 2);
+    assert.strictEqual(M.fill.t, d(10)); assert.strictEqual(M.fill.added, 70); assert.strictEqual(M.periods.length, 1);
+}
 console.log('kf_probeg logbook: ok');

@@ -66,6 +66,7 @@ class Logbook {
         if (s.fuel && typeof s.fuel === 'object') Object.keys(s.fuel).forEach((k) => { if (isNum(s.fuel[k])) this.fuel[k] = s.fuel[k]; });
         this.fuelBy = {};                                           // день -> { время заправки бака: литров }
         if (s.fuelBy && typeof s.fuelBy === 'object') Object.keys(s.fuelBy).forEach((k) => { if (s.fuelBy[k] && typeof s.fuelBy[k] === 'object') this.fuelBy[k] = s.fuelBy[k]; });
+        this.fixed = Array.isArray(s.fixed) ? s.fixed : [];
         this.stop = s.stop && isNum(s.stop.odo) && isNum(s.stop.t) ? s.stop : null;   // стоянка: { t, odo, lv? }
         this.win = [];                                              // [t, литры] - не сохраняется
         this.ver = 0;
@@ -209,6 +210,41 @@ class Logbook {
         return { t: f.t, added: f.added };
     }
 
+    /**
+     * Убрать ложную заправку с концом бака endT в любом месте списка: два соседних бака склеиваются
+     * (литры и км складываются - заниженный «низ» перед ложной заправкой и завышенный «верх» после неё
+     * взаимно гасятся). Последнюю заправку убирает undoRefuel().
+     */
+    dropRefuel(endT) {
+        if (this.fill && this.fill.t === endT) return this.undoRefuel();
+        const i = this.periods.findIndex((p) => p.end === endT);
+        const p = this.periods[i], q = this.periods[i + 1];
+        if (!p || !q || q.start !== endT) return null;
+        this.periods.splice(i, 2, { start: p.start, end: q.end, odo0: p.odo0, odo1: q.odo1, km: p.km + q.km, l: round(p.l + q.l, 1), added: q.added, partial: !!p.partial });
+        const from = String(endT), to = String(p.start);
+        Object.keys(this.fuelBy).forEach((k) => {
+            const by = this.fuelBy[k];
+            if (by && isNum(by[from])) { by[to] = round((by[to] || 0) + by[from], 2); delete by[from]; }
+        });
+        this.ver++;
+        return { t: endT, added: p.added };
+    }
+
+    /**
+     * Разовая чистка по словам владельца: заправок 13 и 15.11.2026 не было (ложные, до 1.9.5).
+     * Выполняется один раз (флаг в сохранении), убирает только заправки с этими датами.
+     */
+    fixFalse1116() {
+        if (this.fixed && this.fixed.indexOf('2026-11-13/15') >= 0) return [];
+        const bad = (t) => dayKey(t) === '2026-11-13' || dayKey(t) === '2026-11-15';
+        const ends = this.periods.map((p) => p.end).concat(this.fill && !this.fill.partial ? [this.fill.t] : []);
+        const out = [];
+        ends.filter((t, i, a) => bad(t) && a.indexOf(t) === i).sort((a, b) => b - a).forEach((t) => { const r = this.dropRefuel(t); if (r) out.push(r); });
+        this.fixed = (this.fixed || []).concat('2026-11-13/15');
+        this.ver++;
+        return out;
+    }
+
     /** км с начала дня key (включительно) до последнего показания; null без данных */
     kmSince(key) {
         if (this.odo === null) return null;
@@ -274,7 +310,7 @@ class Logbook {
     }
 
     toJSON() {
-        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel, fuelBy: this.fuelBy, stop: this.stop };
+        return { v: 2, odo: this.odo, tank: this.tank, low: this.low, fill: this.fill, periods: this.periods, days: this.days, fuel: this.fuel, fuelBy: this.fuelBy, stop: this.stop, fixed: this.fixed };
     }
 }
 

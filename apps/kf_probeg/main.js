@@ -141,6 +141,11 @@ mgu.run({
                 savedVer = verOf(); savedAt = Date.now();
             } catch (e) { log.warn('save: ' + e); }
         }
+        // заправок 13 и 15.11.2026 не было (ложные, до 1.9.5) - убрать один раз
+        try {
+            const gone = lb.fixFalse1116();
+            if (gone.length) { log.info('removed false refuels: ' + JSON.stringify(gone)); save(); }
+        } catch (e) { log.warn('fixFalse1116: ' + e); }
         // головное устройство засыпает - процесс завершается: учёт сохраняется
         process.on('exit', () => { if (verOf() !== savedVer) save(); });
         process.on('SIGTERM', () => { if (verOf() !== savedVer) save(); process.exit(0); });
